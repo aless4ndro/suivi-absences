@@ -28,7 +28,8 @@ npm run dist   # produit release/SuiviAbsences.exe (sous Windows)
 - [x] Sauvegarde et restauration de la base (page Paramètres)
 - [x] Section Motifs (recevable / irrecevable)
 - [x] Absences et retards (durée à la minute, motifs, observations, mail copié, pièces jointes, alertes sur l'accueil)
-- [ ] Envoi du mail à l'entreprise dès l'absence (dépend du type d'Outlook)
+- [x] Notification de l'entreprise par mail : brouillon ouvert dans l'ancien Outlook (PowerShell), pièces jointes cochées à la main, repli sur mailto
+- [ ] À vérifier sous Windows avec le vrai Outlook (non testable hors Windows)
 - [ ] Rattrapages (créneaux, total ou partiel, convocation, émargement)
 - [ ] Calendrier d'année scolaire
 - [ ] Récapitulatif mensuel envoyé aux entreprises via Outlook

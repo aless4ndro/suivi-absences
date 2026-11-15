@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
-  appeler, fichiers,
-  type Classe, type Evenement, type FiltresEvenements, type Jeune, type Motif, type Piece, type PieceChoisie,
+  appeler, courriel, fichiers,
+  type Apercu, type Classe, type Evenement, type FiltresEvenements, type Jeune, type Motif, type Piece, type PieceChoisie, type ResultatCourriel,
 } from '../api';
 import { aujourdhui, formaterDate, formaterDuree, formaterTaille } from '../format';
 
@@ -18,6 +18,14 @@ type Fiche = {
   mail_copie: string;
 };
 
+type Notif = {
+  evenement: Evenement;
+  apercu: Apercu;
+  pieces: Piece[];
+  choisies: number[];
+  resultat?: ResultatCourriel;
+};
+
 export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEvenements }) {
   const [classes, setClasses] = useState<Classe[]>([]);
   const [apprentis, setApprentis] = useState<Jeune[]>([]);
@@ -29,6 +37,7 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
   const [nouvelles, setNouvelles] = useState<PieceChoisie[]>([]);
   const [erreur, setErreur] = useState('');
   const [info, setInfo] = useState('');
+  const [notif, setNotif] = useState<Notif | null>(null);
 
   const charger = () => appeler<Evenement[]>('evenements:list', filtres).then(setListe);
   useEffect(() => {
@@ -121,6 +130,36 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
     charger();
   }
 
+  async function preparerNotification(e: Evenement) {
+    setErreur(''); setInfo(''); setFiche(null);
+    try {
+      const [apercu, pieces] = await Promise.all([
+        courriel<Apercu>('apercu', { id: e.id }),
+        appeler<Piece[]>('pieces:list', e.id),
+      ]);
+      setNotif({ evenement: e, apercu, pieces, choisies: [] });
+    } catch (err) {
+      setInfo((err as Error).message);
+    }
+  }
+
+  async function ouvrirDansOutlook() {
+    if (!notif) return;
+    try {
+      const resultat = await courriel<ResultatCourriel>('ouvrir', { id: notif.evenement.id, piece_ids: notif.choisies });
+      setNotif({ ...notif, resultat });
+    } catch (err) {
+      setInfo((err as Error).message);
+    }
+  }
+
+  async function confirmerEnvoi() {
+    if (!notif) return;
+    await appeler('evenements:notifier', { ids: [notif.evenement.id], notifie: true });
+    setNotif(null);
+    charger();
+  }
+
   const statutMotif = fiche ? motifDe(fiche.motif_id)?.statut : undefined;
 
   return (
@@ -160,6 +199,63 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
       </div>
 
       {info && <p className="erreur">{info}</p>}
+
+      {notif && (
+        <section className="fiche">
+          <h2>Notifier l'entreprise : {notif.evenement.jeune_prenom} {notif.evenement.jeune_nom}</h2>
+          {notif.apercu.avertissement && <p className="erreur">{notif.apercu.avertissement}</p>}
+          <p><strong>À :</strong> {notif.apercu.a || <span className="discret">(à saisir dans Outlook)</span>}</p>
+          <p><strong>Objet :</strong> {notif.apercu.objet}</p>
+          <pre className="apercu">{notif.apercu.corps}</pre>
+          <p className="discret">Le message s'ouvre dans Outlook : relisez-le, modifiez-le si besoin, puis envoyez-le vous-même.</p>
+
+          {!notif.resultat && (
+            <>
+              <h3>Pièces jointes à envoyer</h3>
+              {notif.pieces.length === 0 ? (
+                <p className="discret">Aucune pièce jointe enregistrée pour cette absence.</p>
+              ) : (
+                <>
+                  <p className="discret">Aucune n'est cochée par défaut : un certificat médical ne doit pas partir chez l'employeur par erreur.</p>
+                  <ul className="pieces">
+                    {notif.pieces.map((p) => (
+                      <li key={p.id}>
+                        <label className="case">
+                          <input type="checkbox" checked={notif.choisies.includes(p.id)}
+                            onChange={(ev) => setNotif({ ...notif, choisies: ev.target.checked ? [...notif.choisies, p.id] : notif.choisies.filter((x) => x !== p.id) })} />
+                          {p.nom_fichier} <span className="discret">({formaterTaille(p.taille)})</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <div className="actions">
+                <button className="principal" onClick={ouvrirDansOutlook}>Préparer le mail dans Outlook</button>
+                <button onClick={() => setNotif(null)}>Annuler</button>
+              </div>
+            </>
+          )}
+
+          {notif.resultat && (
+            <>
+              {notif.resultat.methode === 'outlook' ? (
+                <p className="succes">Le mail est ouvert dans Outlook. Relisez-le et envoyez-le.</p>
+              ) : (
+                <p className="erreur">
+                  Outlook n'a pas pu préparer le mail avec ses pièces jointes ({notif.resultat.raison}). Un nouveau message s'est ouvert avec le texte
+                  {notif.resultat.nbPieces ? ' ; le dossier des pièces jointes s\'est ouvert : glissez-les dans le message.' : '.'}
+                </p>
+              )}
+              <p><strong>L'avez-vous envoyé ?</strong></p>
+              <div className="actions">
+                <button className="principal" onClick={confirmerEnvoi}>Oui, marquer l'entreprise comme notifiée</button>
+                <button onClick={() => setNotif(null)}>Pas encore</button>
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       {fiche && (
         <form className="fiche" onSubmit={enregistrer}>
@@ -271,7 +367,10 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
                 </td>
                 <td>
                   {e.notifie_le ? <>✓ le {formaterDate(e.notifie_le.slice(0, 10))}</> : <span className="discret">non</span>}
-                  <div><button className="petit" onClick={() => basculerNotifie(e)}>{e.notifie_le ? 'Retirer' : 'Marquer comme notifiée'}</button></div>
+                  <div>
+                    <button className="petit" onClick={() => preparerNotification(e)}>Notifier par mail…</button>
+                    <button className="petit" onClick={() => basculerNotifie(e)}>{e.notifie_le ? 'Retirer' : 'Marquer notifiée'}</button>
+                  </div>
                 </td>
                 <td className="droite">
                   <button onClick={() => modifier(e)}>Modifier</button>

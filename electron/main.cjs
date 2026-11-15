@@ -5,6 +5,10 @@ const crypto = require('node:crypto');
 const { ouvrir, TAILLE_MAX_PIECE } = require('./db.cjs');
 const { creerSession } = require('./auth.cjs');
 const { verifierSauvegarde, remplacer } = require('./sauvegarde.cjs');
+const { composer, preparerBrouillon, nomSur } = require('./courriel.cjs');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+const execFileP = promisify(execFile);
 
 let db;
 let cheminDb;
@@ -63,6 +67,38 @@ function brancherIpc() {
       case 'verrouiller': session.verrouiller(); return session.etat();
       default: throw new Error(`Action inconnue : ${action}`);
     }
+  });
+
+  ipcMain.handle('courriel', async (_e, action, arg = {}) => {
+    exigerOuvert();
+    const detail = db.appeler('evenements:detail', arg.id);
+    const message = composer(detail);
+
+    if (action === 'apercu') return message;
+
+    if (action === 'ouvrir') {
+      // Seules les pièces de cet événement peuvent être jointes, et uniquement celles cochées.
+      const autorisees = new Set(db.appeler('pieces:list', arg.id).map((p) => p.id));
+      const ids = (arg.piece_ids ?? []).filter((id) => autorisees.has(id));
+      fs.mkdirSync(dossierTemp(), { recursive: true });
+      const dossier = fs.mkdtempSync(path.join(dossierTemp(), 'courriel-'));
+      const fichiers = ids.map((id) => {
+        const { nom_fichier, contenu } = db.appeler('pieces:contenu', id);
+        const chemin = path.join(dossier, nomSur(nom_fichier));
+        fs.writeFileSync(chemin, contenu);
+        return chemin;
+      });
+      return preparerBrouillon(
+        { ...message, fichiers },
+        {
+          executer: execFileP,
+          ouvrirExterne: (url) => shell.openExternal(url),
+          ouvrirDossier: (d) => shell.openPath(d),
+          dossierTravail: dossier,
+        }
+      );
+    }
+    throw new Error(`Action inconnue : ${action}`);
   });
 
   ipcMain.handle('fichiers', async (event, action, arg = {}) => {

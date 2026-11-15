@@ -328,6 +328,23 @@ function ouvrir(chemin) {
       return true;
     },
 
+    // Tout ce qu'il faut pour écrire au maître d'apprentissage ou à l'entreprise.
+    'evenements:detail': (id) => {
+      const r = db.prepare(
+        `SELECT e.*, j.nom AS jeune_nom, j.prenom AS jeune_prenom, c.code AS classe_code,
+                j.maitre_nom, j.maitre_email, en.email AS entreprise_email,
+                m.libelle AS motif_libelle, m.statut AS motif_statut
+         FROM evenements e
+         JOIN jeunes j ON j.id = e.jeune_id
+         JOIN classes c ON c.id = j.classe_id
+         LEFT JOIN entreprises en ON en.id = j.entreprise_id
+         LEFT JOIN motifs m ON m.id = e.motif_id
+         WHERE e.id = ?`
+      ).get(Number(id));
+      if (!r) throw new Error('Absence ou retard introuvable.');
+      return r;
+    },
+
     'evenements:alertes': () => ({
       a_traiter: db.prepare('SELECT COUNT(*) AS n FROM evenements WHERE motif_id IS NULL').get().n,
       a_notifier: db.prepare('SELECT COUNT(*) AS n FROM evenements WHERE notifie_le IS NULL').get().n,

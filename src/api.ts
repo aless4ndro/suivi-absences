@@ -22,6 +22,7 @@ declare global {
       appeler: (action: string, arg?: unknown) => Promise<any>;
       auth: (action: string, arg?: unknown) => Promise<any>;
       fichiers: (action: string, arg?: unknown) => Promise<any>;
+      courriel: (action: string, arg?: unknown) => Promise<any>;
     };
   }
 }
@@ -93,3 +94,14 @@ export type FiltresEvenements = {
   statut?: '' | 'a_traiter' | 'recevable' | 'irrecevable';
   notifie?: '' | 'oui' | 'non';
 };
+
+export type Apercu = { a: string; objet: string; corps: string; avertissement: string | null };
+export type ResultatCourriel = { methode: 'outlook' | 'mailto'; raison?: string; nbPieces?: number };
+
+export async function courriel<T = any>(action: string, arg?: unknown): Promise<T> {
+  try {
+    return await window.api.courriel(action, arg);
+  } catch (e) {
+    throw nettoyer(e);
+  }
+}

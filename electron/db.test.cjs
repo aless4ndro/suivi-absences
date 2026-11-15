@@ -141,6 +141,14 @@ test('absences et retards : saisie, validations, filtres, alertes, pièces joint
   db.appeler('evenements:notifier', { ids: [abs1], notifie: false });
   assert.strictEqual(n({ notifie: 'non' }), 2);
 
+  // détail pour l'envoi de mail
+  const det = db.appeler('evenements:detail', abs1);
+  assert.strictEqual(det.jeune_prenom, 'Léa');
+  assert.strictEqual(det.classe_code, 'GPME');
+  assert.strictEqual(det.maitre_email, null);
+  assert.strictEqual(det.entreprise_email, null);
+  assert.throws(() => db.appeler('evenements:detail', 999), /introuvable/);
+
   // pièces jointes
   const contenu = Buffer.from([0, 1, 2, 250, 255]);
   const pj = db.appeler('pieces:ajouter', { evenement_id: abs1, nom: 'certificat.pdf', contenu });

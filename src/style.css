@@ -61,3 +61,6 @@ textarea:focus { outline: 2px solid #9dbcf0; border-color: var(--accent); }
 .carte.alerte .chiffre { color: #b86e00; }
 button.petit { padding: 2px 8px; font-size: 12px; margin-top: 4px; }
 h2 { margin-top: 22px; }
+.apercu { background: #f5f6f8; border: 1px solid var(--bord); border-radius: 6px; padding: 12px; font: inherit; white-space: pre-wrap; margin: 8px 0; }
+label.case { flex-direction: row; align-items: center; gap: 8px; font-size: 15px; color: var(--texte); }
+button.petit + button.petit { margin-left: 4px; }
