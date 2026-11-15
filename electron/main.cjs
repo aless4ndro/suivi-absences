@@ -153,7 +153,7 @@ function brancherIpc() {
       const { nom_fichier, contenu } = db.appeler('pieces:contenu', arg.id);
       const dossier = dossierTemp();
       fs.mkdirSync(dossier, { recursive: true });
-      const sur = path.basename(nom_fichier).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+      const sur = nomSur(nom_fichier);
       const fichier = path.join(dossier, `${arg.id}-${sur}`);
       fs.writeFileSync(fichier, contenu);
       const erreur = await shell.openPath(fichier);

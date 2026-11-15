@@ -14,7 +14,10 @@ function formaterDuree(minutes) {
 
 // Nom de fichier sûr pour le système de fichiers Windows.
 function nomSur(nom) {
-  return path.basename(String(nom)).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_') || 'fichier';
+  // même résultat sous Windows et ailleurs : on garde le dernier segment, puis on neutralise les caractères interdits
+  const dernier = String(nom).split(/[\\/]/).pop();
+  const propre = dernier.replace(/[<>:"|?*\u0000-\u001f]/g, '_').trim();
+  return /^\.*$/.test(propre) ? 'fichier' : propre;
 }
 
 // d : résultat de l'action 'evenements:detail'

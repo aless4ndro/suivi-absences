@@ -59,6 +59,9 @@ test('mailto : adresse lisible, texte encodé, retours à la ligne Windows', () 
 test('noms de fichiers sûrs', () => {
   assert.strictEqual(nomSur('a:b*c?.pdf'), 'a_b_c_.pdf');
   assert.strictEqual(nomSur('../../secret.txt'), 'secret.txt');
+  assert.strictEqual(nomSur('C:\\Users\\x\\certificat.pdf'), 'certificat.pdf');
+  assert.strictEqual(nomSur('..'), 'fichier');
+  assert.strictEqual(nomSur(''), 'fichier');
 });
 
 test('brouillon : Outlook réussi, échec puis repli mailto, hors Windows', async () => {
