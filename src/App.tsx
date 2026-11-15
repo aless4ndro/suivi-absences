@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
-import { auth, type Etat } from './api';
+import { auth, type Etat, type FiltresEvenements } from './api';
 import Accueil from './pages/Accueil';
 import Jeunes from './pages/Jeunes';
 import Entreprises from './pages/Entreprises';
 import Connexion from './pages/Connexion';
 import Parametres from './pages/Parametres';
 import Motifs from './pages/Motifs';
+import Absences from './pages/Absences';
 
 const PAGES = [
   { id: 'accueil', titre: 'Accueil' },
+  { id: 'absences', titre: 'Absences et retards' },
   { id: 'jeunes', titre: 'Apprentis' },
-  { id: 'motifs', titre: 'Motifs' },
   { id: 'entreprises', titre: 'Entreprises' },
-  { id: 'absences', titre: 'Absences et retards', aVenir: true },
+  { id: 'motifs', titre: 'Motifs' },
   { id: 'rattrapages', titre: 'Rattrapages', aVenir: true },
   { id: 'calendrier', titre: 'Calendrier', aVenir: true },
   { id: 'envois', titre: 'Récapitulatifs', aVenir: true },
@@ -24,6 +25,11 @@ type PageId = (typeof PAGES)[number]['id'];
 export default function App() {
   const [page, setPage] = useState<PageId>('accueil');
   const [etat, setEtat] = useState<Etat | null>(null);
+  const [filtreAbsences, setFiltreAbsences] = useState<FiltresEvenements | undefined>();
+  const allerA = (id: string, filtre?: FiltresEvenements) => {
+    setFiltreAbsences(filtre);
+    setPage(id as PageId);
+  };
   const rafraichir = () => auth<Etat>('etat').then(setEtat);
   useEffect(() => {
     rafraichir();
@@ -41,7 +47,7 @@ export default function App() {
       <nav className="menu">
         <div className="marque">Suivi Absences</div>
         {PAGES.map((p) => (
-          <button key={p.id} className={p.id === page ? 'actif' : ''} onClick={() => setPage(p.id)}>
+          <button key={p.id} className={p.id === page ? 'actif' : ''} onClick={() => allerA(p.id)}>
             {p.titre}
             {'aVenir' in p && <span className="badge">bientôt</span>}
           </button>
@@ -49,7 +55,9 @@ export default function App() {
         <button className="bas" onClick={() => auth('verrouiller').then(rafraichir)}>Verrouiller</button>
       </nav>
       <main>
-        {page === 'accueil' && <Accueil allerA={(id) => setPage(id as PageId)} />}
+        {page === 'accueil' && <Accueil allerA={allerA} />
+        }
+        {page === 'absences' && <Absences key={JSON.stringify(filtreAbsences ?? {})} filtreInitial={filtreAbsences} />}
         {page === 'jeunes' && <Jeunes />}
         {page === 'entreprises' && <Entreprises />}
         {page === 'motifs' && <Motifs />}

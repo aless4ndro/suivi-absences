@@ -21,7 +21,7 @@ declare global {
     api: {
       appeler: (action: string, arg?: unknown) => Promise<any>;
       auth: (action: string, arg?: unknown) => Promise<any>;
-      fichiers: (action: string) => Promise<any>;
+      fichiers: (action: string, arg?: unknown) => Promise<any>;
     };
   }
 }
@@ -48,9 +48,9 @@ export async function auth<T = any>(action: string, arg?: unknown): Promise<T> {
   }
 }
 
-export async function fichiers<T = any>(action: string): Promise<T> {
+export async function fichiers<T = any>(action: string, arg?: unknown): Promise<T> {
   try {
-    return await window.api.fichiers(action);
+    return await window.api.fichiers(action, arg);
   } catch (e) {
     throw nettoyer(e);
   }
@@ -61,4 +61,35 @@ export type Motif = {
   libelle: string;
   statut: 'recevable' | 'irrecevable';
   nb_utilisations?: number;
+};
+
+export type Evenement = {
+  id: number;
+  jeune_id: number;
+  type: 'absence' | 'retard';
+  date_debut: string;
+  date_fin: string | null;
+  duree_minutes: number;
+  motif_id: number | null;
+  observations: string | null;
+  mail_copie: string | null;
+  notifie_le: string | null;
+  jeune_nom: string;
+  jeune_prenom: string;
+  classe_code: string;
+  entreprise_nom: string | null;
+  motif_libelle: string | null;
+  motif_statut: 'recevable' | 'irrecevable' | null;
+  nb_pieces: number;
+};
+
+export type Piece = { id: number; nom_fichier: string; taille: number };
+export type PieceChoisie = { token: string; nom: string; taille: number };
+export type FiltresEvenements = {
+  classe_id?: number;
+  jeune_id?: number;
+  mois?: string;
+  type?: '' | 'absence' | 'retard';
+  statut?: '' | 'a_traiter' | 'recevable' | 'irrecevable';
+  notifie?: '' | 'oui' | 'non';
 };

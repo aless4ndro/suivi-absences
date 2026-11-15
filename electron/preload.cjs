@@ -4,5 +4,5 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   appeler: (action, arg) => ipcRenderer.invoke('db', action, arg),
   auth: (action, arg) => ipcRenderer.invoke('auth', action, arg),
-  fichiers: (action) => ipcRenderer.invoke('fichiers', action),
+  fichiers: (action, arg) => ipcRenderer.invoke('fichiers', action, arg),
 });
