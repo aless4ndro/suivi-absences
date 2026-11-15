@@ -4,6 +4,14 @@ export function aujourdhui(): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+export function ajouterJours(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+export const enMinutes = (h: string) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
+
 export const formaterDate = (iso: string) => iso.split('-').reverse().join('/');
 
 export function formaterDuree(minutes: number): string {

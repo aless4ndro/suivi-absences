@@ -36,11 +36,18 @@ function composer(d) {
     ? `${d.motif_libelle} (${d.motif_statut === 'recevable' ? 'recevable' : 'irrecevable'})`
     : 'en attente de justificatif';
 
+  const lignes = (d.creneaux ?? []).map((c) =>
+    absence
+      ? `- le ${jourMois(c.date)} de ${c.heure_debut} à ${c.heure_fin} (${formaterDuree(c.duree_minutes)})`
+      : `- le ${jourMois(c.date)} : cours prévu à ${c.heure_debut}, arrivée à ${c.heure_fin} (${formaterDuree(c.duree_minutes)})`
+  );
+
   const corps = [
     `Bonjour${d.maitre_nom ? ` ${d.maitre_nom}` : ''},`,
     '',
     `Nous vous informons que ${nom} (${d.classe_code}), apprenti(e) au sein de votre entreprise, a été ${fait}.`,
     '',
+    ...(lignes.length ? [lignes.length > 1 ? 'Créneaux concernés :' : 'Créneau concerné :', ...lignes, ''] : []),
     `${absence ? "Durée totale d'absence" : 'Durée du retard'} : ${formaterDuree(d.duree_minutes)}`,
     `Motif : ${motif}`,
     '',

@@ -107,9 +107,34 @@ const MIGRATIONS = [
   ALTER TABLE evenements ADD COLUMN notifie_le TEXT;
   CREATE INDEX evenements_jeune_date ON evenements (jeune_id, date_debut);
   `,
+  // v5 : une classe par année (BTS 1ère et 2ème année, licence 3ème année) ; créneaux horaires des absences
+  `
+  ALTER TABLE classes ADD COLUMN ordre INTEGER NOT NULL DEFAULT 0;
+  UPDATE classes SET code = 'GPME 1ère année', libelle = 'BTS Gestion de la PME — 1ère année', ordre = 10 WHERE code = 'GPME';
+  UPDATE classes SET code = 'MCO 1ère année', libelle = 'BTS Management Commercial Opérationnel — 1ère année', ordre = 20 WHERE code = 'MCO';
+  UPDATE classes SET code = 'NDRC 1ère année', libelle = 'BTS Négociation et Digitalisation de la Relation Client — 1ère année', ordre = 30 WHERE code = 'NDRC';
+  UPDATE classes SET code = 'LCVM 3ème année', libelle = 'Licence LCVM — 3ème année', ordre = 40 WHERE code = 'LCVM';
+  INSERT INTO classes (code, libelle, ordre) VALUES
+    ('GPME 2ème année', 'BTS Gestion de la PME — 2ème année', 11),
+    ('MCO 2ème année', 'BTS Management Commercial Opérationnel — 2ème année', 21),
+    ('NDRC 2ème année', 'BTS Négociation et Digitalisation de la Relation Client — 2ème année', 31);
+  CREATE TABLE creneaux (
+    id INTEGER PRIMARY KEY,
+    evenement_id INTEGER NOT NULL REFERENCES evenements(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    heure_debut TEXT NOT NULL,
+    heure_fin TEXT NOT NULL,
+    duree_minutes INTEGER NOT NULL
+  );
+  CREATE INDEX creneaux_evenement ON creneaux (evenement_id);
+  `,
 ];
 
 const TAILLE_MAX_PIECE = 10 * 1024 * 1024;
+
+const heureValide = (h) => typeof h === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(h);
+const enMinutes = (h) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
+const jourMois = (iso) => iso.split('-').reverse().join('/');
 
 function dateValide(s) {
   if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
@@ -144,8 +169,22 @@ function ouvrir(chemin) {
     }
   }
 
+  function avecCreneaux(rows) {
+    if (!rows.length) return rows;
+    const ids = rows.map((r) => r.id);
+    const lignes = db.prepare(
+      `SELECT * FROM creneaux WHERE evenement_id IN (${ids.map(() => '?').join(',')}) ORDER BY date, heure_debut`
+    ).all(...ids);
+    const parEvenement = new Map();
+    for (const l of lignes) {
+      if (!parEvenement.has(l.evenement_id)) parEvenement.set(l.evenement_id, []);
+      parEvenement.get(l.evenement_id).push(l);
+    }
+    return rows.map((r) => ({ ...r, creneaux: parEvenement.get(r.id) ?? [] }));
+  }
+
   const actions = {
-    'classes:list': () => db.prepare('SELECT * FROM classes ORDER BY id').all(),
+    'classes:list': () => db.prepare('SELECT * FROM classes ORDER BY ordre, id').all(),
 
     'motifs:list': () =>
       db.prepare(
@@ -213,7 +252,7 @@ function ouvrir(chemin) {
          FROM jeunes j
          JOIN classes c ON c.id = j.classe_id
          LEFT JOIN entreprises e ON e.id = j.entreprise_id
-         ORDER BY c.id, j.nom COLLATE NOCASE, j.prenom COLLATE NOCASE`
+         ORDER BY c.ordre, j.nom COLLATE NOCASE, j.prenom COLLATE NOCASE`
       ).all(),
 
     'jeunes:save': (j) => {
@@ -261,7 +300,7 @@ function ouvrir(chemin) {
       if (f.statut === 'recevable' || f.statut === 'irrecevable') { where.push('m.statut = ?'); p.push(f.statut); }
       if (f.notifie === 'oui') where.push('e.notifie_le IS NOT NULL');
       if (f.notifie === 'non') where.push('e.notifie_le IS NULL');
-      return db.prepare(
+      const rows = db.prepare(
         `SELECT e.*, j.nom AS jeune_nom, j.prenom AS jeune_prenom, c.code AS classe_code,
                 en.nom AS entreprise_nom, m.libelle AS motif_libelle, m.statut AS motif_statut,
                 (SELECT COUNT(*) FROM pieces_jointes pj WHERE pj.evenement_id = e.id) AS nb_pieces
@@ -273,6 +312,7 @@ function ouvrir(chemin) {
          ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
          ORDER BY e.date_debut DESC, e.id DESC`
       ).all(...p);
+      return avecCreneaux(rows);
     },
 
     'evenements:save': (e) => {
@@ -280,34 +320,72 @@ function ouvrir(chemin) {
         throw new Error("Choisissez l'apprenti concerné.");
       }
       if (e.type !== 'absence' && e.type !== 'retard') throw new Error('Choisissez absence ou retard.');
-      if (!dateValide(e.date_debut)) throw new Error('La date est invalide.');
-      let dateFin = null;
-      if (e.type === 'absence') {
-        dateFin = e.date_fin || e.date_debut;
-        if (!dateValide(dateFin)) throw new Error('La date de fin est invalide.');
-        if (dateFin < e.date_debut) throw new Error('La date de fin est avant la date de début.');
+      if (e.id && !db.prepare('SELECT 1 FROM evenements WHERE id = ?').get(Number(e.id))) {
+        throw new Error('Cette absence ou ce retard est introuvable.');
       }
-      const duree = Number(e.duree_minutes);
-      if (!Number.isInteger(duree) || duree < 1 || duree > 100000) {
-        throw new Error('Indiquez une durée (heures et minutes) supérieure à zéro.');
+      // La durée n'est jamais saisie : elle est calculée à partir des créneaux (début et fin à la minute).
+      const lignes = Array.isArray(e.creneaux) ? e.creneaux : [];
+      if (lignes.length === 0) throw new Error('Ajoutez au moins un créneau (date, heure de début, heure de fin).');
+      if (e.type === 'retard' && lignes.length > 1) throw new Error('Un retard ne comporte qu\'une seule ligne.');
+      const cr = lignes.map((c, i) => {
+        const n = lignes.length > 1 ? `Créneau ${i + 1} : ` : '';
+        if (!dateValide(c.date)) throw new Error(`${n}la date est invalide.`);
+        if (!heureValide(c.heure_debut) || !heureValide(c.heure_fin)) throw new Error(`${n}les heures sont invalides.`);
+        const d = enMinutes(c.heure_fin) - enMinutes(c.heure_debut);
+        if (d <= 0) throw new Error(`${n}l'heure de fin doit être après l'heure de début.`);
+        return { date: c.date, heure_debut: c.heure_debut, heure_fin: c.heure_fin, duree_minutes: d };
+      }).sort((x, y) => (x.date + x.heure_debut).localeCompare(y.date + y.heure_debut));
+
+      const chevauche = (x, y) => x.date === y.date && x.heure_debut < y.heure_fin && y.heure_debut < x.heure_fin;
+      for (let k = 1; k < cr.length; k++) {
+        if (chevauche(cr[k - 1], cr[k])) throw new Error(`Deux créneaux se chevauchent le ${jourMois(cr[k].date)}.`);
       }
+      // Pas de doublon : ce créneau ne doit pas recouvrir une absence ou un retard déjà saisi pour cet apprenti.
+      const autres = db.prepare(
+        `SELECT c.date, c.heure_debut, c.heure_fin, e.type FROM creneaux c
+         JOIN evenements e ON e.id = c.evenement_id WHERE e.jeune_id = ? AND e.id <> ?`
+      ).all(Number(e.jeune_id), Number(e.id) || 0);
+      for (const c of cr) {
+        const a = autres.find((x) => chevauche(c, x));
+        if (a) {
+          throw new Error(
+            `Le ${jourMois(c.date)} de ${c.heure_debut} à ${c.heure_fin} chevauche ${a.type === 'absence' ? 'une absence' : 'un retard'} déjà enregistré${a.type === 'absence' ? 'e' : ''} (${a.heure_debut} à ${a.heure_fin}).`
+          );
+        }
+      }
+      const dateDebut = cr[0].date;
+      const dateFin = e.type === 'absence' ? cr[cr.length - 1].date : null;
+      const duree = cr.reduce((t, c) => t + c.duree_minutes, 0);
       const motifId = e.motif_id ? Number(e.motif_id) : null;
       if (motifId && !db.prepare('SELECT 1 FROM motifs WHERE id = ?').get(motifId)) throw new Error("Ce motif n'existe plus.");
-      const p = [Number(e.jeune_id), e.type, e.date_debut, dateFin, duree, motifId, vide(e.observations), vide(e.mail_copie)];
-      if (e.id) {
-        const r = db.prepare(
-          `UPDATE evenements SET jeune_id=?, type=?, date_debut=?, date_fin=?, duree_minutes=?, motif_id=?,
-           observations=?, mail_copie=? WHERE id=?`
-        ).run(...p, Number(e.id));
-        if (!r.changes) throw new Error('Cette absence ou ce retard est introuvable.');
-        return Number(e.id);
+      const p = [Number(e.jeune_id), e.type, dateDebut, dateFin, duree, motifId, vide(e.observations), vide(e.mail_copie)];
+      db.exec('BEGIN');
+      try {
+        let id;
+        if (e.id) {
+          const r = db.prepare(
+            `UPDATE evenements SET jeune_id=?, type=?, date_debut=?, date_fin=?, duree_minutes=?, motif_id=?,
+             observations=?, mail_copie=? WHERE id=?`
+          ).run(...p, Number(e.id));
+          if (!r.changes) throw new Error('Cette absence ou ce retard est introuvable.');
+          id = Number(e.id);
+          db.prepare('DELETE FROM creneaux WHERE evenement_id = ?').run(id);
+        } else {
+          id = Number(
+            db.prepare(
+              `INSERT INTO evenements (jeune_id, type, date_debut, date_fin, duree_minutes, motif_id, observations, mail_copie)
+               VALUES (?,?,?,?,?,?,?,?)`
+            ).run(...p).lastInsertRowid
+          );
+        }
+        const ins = db.prepare('INSERT INTO creneaux (evenement_id, date, heure_debut, heure_fin, duree_minutes) VALUES (?,?,?,?,?)');
+        for (const c of cr) ins.run(id, c.date, c.heure_debut, c.heure_fin, c.duree_minutes);
+        db.exec('COMMIT');
+        return id;
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
       }
-      return Number(
-        db.prepare(
-          `INSERT INTO evenements (jeune_id, type, date_debut, date_fin, duree_minutes, motif_id, observations, mail_copie)
-           VALUES (?,?,?,?,?,?,?,?)`
-        ).run(...p).lastInsertRowid
-      );
     },
 
     'evenements:delete': (id) => {
@@ -342,7 +420,7 @@ function ouvrir(chemin) {
          WHERE e.id = ?`
       ).get(Number(id));
       if (!r) throw new Error('Absence ou retard introuvable.');
-      return r;
+      return avecCreneaux([r])[0];
     },
 
     'evenements:alertes': () => ({
@@ -379,7 +457,7 @@ function ouvrir(chemin) {
     'stats': () => ({
       classes: db.prepare(
         `SELECT c.id, c.code, c.libelle, COUNT(j.id) AS nb_jeunes
-         FROM classes c LEFT JOIN jeunes j ON j.classe_id = c.id GROUP BY c.id ORDER BY c.id`
+         FROM classes c LEFT JOIN jeunes j ON j.classe_id = c.id GROUP BY c.id ORDER BY c.ordre, c.id`
       ).all(),
       nb_entreprises: db.prepare('SELECT COUNT(*) AS n FROM entreprises').get().n,
     }),
@@ -410,4 +488,4 @@ function ouvrir(chemin) {
   };
 }
 
-module.exports = { ouvrir, VERSION: MIGRATIONS.length, TAILLE_MAX_PIECE };
+module.exports = { ouvrir, MIGRATIONS, VERSION: MIGRATIONS.length, TAILLE_MAX_PIECE };

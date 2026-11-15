@@ -1,7 +1,7 @@
 # Suivi Absences
 
 Application de bureau Windows pour le suivi des absences, retards et rattrapages
-de quatre classes en alternance (BTS GPME, MCO, NDRC et licence LCVM).
+de sept classes en alternance : BTS GPME, MCO et NDRC (1ère et 2ème année) et licence LCVM (3ème année).
 
 - Mono-poste : les données restent sur le PC, dans une base SQLite locale.
 - Pièces jointes : stockées dans la base (10 Mo maximum par fichier), donc incluses dans les sauvegardes.
@@ -27,7 +27,7 @@ npm run dist   # produit release/SuiviAbsences.exe (sous Windows)
 - [x] Connexion par mot de passe (haché, blocage 30 s après 5 échecs)
 - [x] Sauvegarde et restauration de la base (page Paramètres)
 - [x] Section Motifs (recevable / irrecevable)
-- [x] Absences et retards (durée à la minute, motifs, observations, mail copié, pièces jointes, alertes sur l'accueil)
+- [x] Absences et retards (créneaux date + heure de début et de fin, durée calculée automatiquement à la minute, contrôle des doublons, motifs, observations, mail copié, pièces jointes, alertes sur l'accueil)
 - [x] Notification de l'entreprise par mail : brouillon ouvert dans l'ancien Outlook (PowerShell), pièces jointes cochées à la main, repli sur mailto
 - [ ] À vérifier sous Windows avec le vrai Outlook (non testable hors Windows)
 - [ ] Rattrapages (créneaux, total ou partiel, convocation, émargement)

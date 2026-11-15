@@ -4,27 +4,27 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { ouvrir } = require('./db.cjs');
+const { ouvrir, MIGRATIONS } = require('./db.cjs');
 
 test('schéma, classes par défaut, jeunes et entreprises', () => {
   const db = ouvrir(':memory:');
   const classes = db.appeler('classes:list');
-  assert.deepStrictEqual(classes.map((c) => c.code), ['GPME', 'MCO', 'NDRC', 'LCVM']);
+  assert.deepStrictEqual(classes.map((c) => c.code), ['GPME 1ère année', 'GPME 2ème année', 'MCO 1ère année', 'MCO 2ème année', 'NDRC 1ère année', 'NDRC 2ème année', 'LCVM 3ème année']);
   assert.ok(db.appeler('motifs:list').length >= 2);
 
   const eid = db.appeler('entreprises:save', { nom: ' Boulangerie Martin ', email: 'contact@martin.example' });
   const jid = db.appeler('jeunes:save', {
-    nom: 'Durand', prenom: 'Léa', classe_id: classes[1].id, entreprise_id: eid,
+    nom: 'Durand', prenom: 'Léa', classe_id: classes[2].id, entreprise_id: eid,
     maitre_nom: 'M. Martin', maitre_email: '',
   });
   let jeunes = db.appeler('jeunes:list');
   assert.strictEqual(jeunes.length, 1);
   assert.strictEqual(jeunes[0].entreprise_nom, 'Boulangerie Martin');
-  assert.strictEqual(jeunes[0].classe_code, 'MCO');
+  assert.strictEqual(jeunes[0].classe_code, 'MCO 1ère année');
   assert.strictEqual(jeunes[0].maitre_email, null);
 
   db.appeler('jeunes:save', { id: jid, nom: 'Durand', prenom: 'Léa', classe_id: classes[0].id, entreprise_id: eid });
-  assert.strictEqual(db.appeler('jeunes:list')[0].classe_code, 'GPME');
+  assert.strictEqual(db.appeler('jeunes:list')[0].classe_code, 'GPME 1ère année');
   assert.strictEqual(db.appeler('entreprises:list')[0].nb_jeunes, 1);
 
   // Supprimer l'entreprise ne supprime pas le jeune
@@ -80,46 +80,80 @@ test('motifs : création unique, statut obligatoire, suppression protégée', ()
   fs.rmSync(dossier, { recursive: true, force: true });
 });
 
-test('absences et retards : saisie, validations, filtres, alertes, pièces jointes', () => {
+test('absences et retards : créneaux, durée calculée, chevauchements, filtres, alertes, pièces jointes', () => {
   const db = ouvrir(':memory:');
-  const [gpme, mco] = db.appeler('classes:list');
+  const [gpme1, gpme2] = db.appeler('classes:list');
   const eid = db.appeler('entreprises:save', { nom: 'Boulangerie Martin' });
-  const a = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: gpme.id, entreprise_id: eid });
-  const b = db.appeler('jeunes:save', { nom: 'Petit', prenom: 'Sam', classe_id: mco.id });
+  const a = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: gpme1.id, entreprise_id: eid });
+  const b = db.appeler('jeunes:save', { nom: 'Petit', prenom: 'Sam', classe_id: gpme2.id });
   const recevable = db.appeler('motifs:list').find((m) => m.statut === 'recevable');
   const irrecevable = db.appeler('motifs:list').find((m) => m.statut === 'irrecevable');
+  const cren = (date, heure_debut, heure_fin) => ({ date, heure_debut, heure_fin });
 
-  const base = { jeune_id: a, type: 'absence', date_debut: '2026-11-10', date_fin: '2026-11-12', duree_minutes: 7 * 60 + 35 };
+  const base = {
+    jeune_id: a, type: 'absence',
+    creneaux: [cren('2026-11-12', '13:30', '17:05'), cren('2026-11-10', '08:30', '12:00')], // désordre volontaire
+  };
   const abs1 = db.appeler('evenements:save', { ...base, observations: ' mal de dos ', mail_copie: 'Bonjour...' });
-  const ret1 = db.appeler('evenements:save', { jeune_id: a, type: 'retard', date_debut: '2026-11-13', date_fin: '2026-11-14', duree_minutes: 12, motif_id: irrecevable.id });
-  const abs2 = db.appeler('evenements:save', { jeune_id: b, type: 'absence', date_debut: '2026-12-02', duree_minutes: 120, motif_id: recevable.id });
+  const ret1 = db.appeler('evenements:save', { jeune_id: a, type: 'retard', creneaux: [cren('2026-11-13', '08:30', '08:42')], motif_id: irrecevable.id });
+  const abs2 = db.appeler('evenements:save', { jeune_id: b, type: 'absence', creneaux: [cren('2026-12-02', '14:00', '16:00')], motif_id: recevable.id });
 
-  let tous = db.appeler('evenements:list');
+  const tous = db.appeler('evenements:list');
   assert.strictEqual(tous.length, 3);
   assert.strictEqual(tous[0].id, abs2); // plus récent d'abord
   const e1 = tous.find((e) => e.id === abs1);
-  assert.strictEqual(e1.duree_minutes, 455); // 7 h 35, à la minute
+  assert.strictEqual(e1.duree_minutes, 210 + 215); // 3 h 30 + 3 h 35, calculé tout seul à la minute
+  assert.strictEqual(e1.date_debut, '2026-11-10');
+  assert.strictEqual(e1.date_fin, '2026-11-12');
+  assert.deepStrictEqual(e1.creneaux.map((c) => [c.date, c.heure_debut, c.heure_fin, c.duree_minutes]),
+    [['2026-11-10', '08:30', '12:00', 210], ['2026-11-12', '13:30', '17:05', 215]]); // triés par date
   assert.strictEqual(e1.observations, 'mal de dos');
   assert.strictEqual(e1.entreprise_nom, 'Boulangerie Martin');
   assert.strictEqual(e1.motif_id, null);
   const r1 = tous.find((e) => e.id === ret1);
   assert.strictEqual(r1.date_fin, null); // un retard n'a pas de date de fin
-  assert.strictEqual(tous.find((e) => e.id === abs2).date_fin, '2026-12-02'); // fin par défaut = début
+  assert.strictEqual(r1.duree_minutes, 12);
+  assert.strictEqual(tous.find((e) => e.id === abs2).date_fin, '2026-12-02');
 
   // validations
+  const ok = [cren('2026-11-20', '08:30', '10:00')];
   assert.throws(() => db.appeler('evenements:save', { ...base, jeune_id: 999 }), /apprenti/);
   assert.throws(() => db.appeler('evenements:save', { ...base, type: 'autre' }), /absence ou retard/);
-  assert.throws(() => db.appeler('evenements:save', { ...base, date_debut: '2026-02-30' }), /date est invalide/);
-  assert.throws(() => db.appeler('evenements:save', { ...base, date_fin: '2026-11-09' }), /avant la date de début/);
-  assert.throws(() => db.appeler('evenements:save', { ...base, duree_minutes: 0 }), /durée/);
-  assert.throws(() => db.appeler('evenements:save', { ...base, duree_minutes: 1.5 }), /durée/);
-  assert.throws(() => db.appeler('evenements:save', { ...base, motif_id: 999 }), /motif/);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'absence', creneaux: [] }), /au moins un créneau/);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'absence' }), /au moins un créneau/);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'retard', creneaux: [ok[0], cren('2026-11-21', '08:30', '09:00')] }), /une seule ligne/);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'absence', creneaux: [cren('2026-02-30', '08:00', '09:00')] }), /date est invalide/);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'absence', creneaux: [cren('2026-11-20', '25:00', '26:00')] }), /heures sont invalides/);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'absence', creneaux: [cren('2026-11-20', '10:00', '10:00')] }), /après l'heure de début/);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'absence', creneaux: [cren('2026-11-20', '10:00', '09:00')] }), /après l'heure de début/);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'absence', creneaux: [cren('2026-11-20', '09:00', '11:00'), cren('2026-11-20', '10:00', '12:00')] }), /se chevauchent le 20\/11\/2026/);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'absence', creneaux: ok, motif_id: 999 }), /motif/);
   assert.throws(() => db.appeler('evenements:save', { ...base, id: 999 }), /introuvable/);
+  assert.strictEqual(db.appeler('evenements:list').length, 3); // aucun enregistrement partiel après une erreur
+
+  // pas de doublon : même apprenti, créneau qui recouvre un existant
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'absence', creneaux: [cren('2026-11-10', '11:00', '13:00')] }), /chevauche une absence déjà enregistrée \(08:30 à 12:00\)/);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: a, type: 'absence', creneaux: [cren('2026-11-13', '08:00', '09:00')] }), /chevauche un retard déjà enregistré/);
+  db.appeler('evenements:save', { jeune_id: a, type: 'absence', creneaux: [cren('2026-11-10', '12:00', '13:00')] }); // bout à bout : autorisé
+  db.appeler('evenements:save', { jeune_id: b, type: 'absence', creneaux: [cren('2026-11-10', '08:30', '12:00')] }); // autre apprenti : autorisé
+  // modifier une absence sans changer ses créneaux ne se heurte pas à elle-même
+  db.appeler('evenements:save', { ...base, id: abs1 });
+  assert.strictEqual(db.appeler('evenements:list').length, 5);
+  db.appeler('evenements:delete', db.appeler('evenements:list', { jeune_id: a }).find((e) => e.date_debut === '2026-11-10' && e.duree_minutes === 60).id);
+  db.appeler('evenements:delete', db.appeler('evenements:list', { jeune_id: b }).find((e) => e.date_debut === '2026-11-10').id);
+  assert.strictEqual(db.appeler('evenements:list').length, 3);
+
+  // modification : les créneaux sont remplacés
+  db.appeler('evenements:save', { ...base, id: abs1, creneaux: [cren('2026-11-10', '08:30', '09:15')] });
+  const modif = db.appeler('evenements:list').find((e) => e.id === abs1);
+  assert.strictEqual(modif.duree_minutes, 45);
+  assert.strictEqual(modif.creneaux.length, 1);
+  db.appeler('evenements:save', { ...base, id: abs1 }); // retour aux deux créneaux
 
   // filtres
   const n = (f) => db.appeler('evenements:list', f).length;
   assert.strictEqual(n({ jeune_id: a }), 2);
-  assert.strictEqual(n({ classe_id: mco.id }), 1);
+  assert.strictEqual(n({ classe_id: gpme2.id }), 1);
   assert.strictEqual(n({ type: 'retard' }), 1);
   assert.strictEqual(n({ mois: '2026-11' }), 2);
   assert.strictEqual(n({ mois: '2026-12' }), 1);
@@ -144,7 +178,8 @@ test('absences et retards : saisie, validations, filtres, alertes, pièces joint
   // détail pour l'envoi de mail
   const det = db.appeler('evenements:detail', abs1);
   assert.strictEqual(det.jeune_prenom, 'Léa');
-  assert.strictEqual(det.classe_code, 'GPME');
+  assert.strictEqual(det.classe_code, 'GPME 1ère année');
+  assert.strictEqual(det.creneaux.length, 2);
   assert.strictEqual(det.maitre_email, null);
   assert.strictEqual(det.entreprise_email, null);
   assert.throws(() => db.appeler('evenements:detail', 999), /introuvable/);
@@ -159,7 +194,7 @@ test('absences et retards : saisie, validations, filtres, alertes, pièces joint
   assert.throws(() => db.appeler('pieces:ajouter', { evenement_id: abs1, nom: 'vide.txt', contenu: Buffer.alloc(0) }), /vide/);
   assert.throws(() => db.appeler('pieces:ajouter', { evenement_id: 999, nom: 'x', contenu }), /introuvable/);
 
-  // supprimer l'absence supprime ses pièces ; supprimer l'apprenti supprime ses absences
+  // supprimer l'absence supprime ses pièces et ses créneaux ; supprimer l'apprenti supprime ses absences
   db.appeler('evenements:delete', abs1);
   assert.strictEqual(db.appeler('pieces:list', abs1).length, 0);
   db.appeler('jeunes:delete', a);
@@ -167,3 +202,27 @@ test('absences et retards : saisie, validations, filtres, alertes, pièces joint
   db.fermer();
 });
 
+test('migration : une base existante garde ses classes et apprentis, et passe à 7 classes', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'sa-migration-'));
+  const chemin = path.join(dossier, 'ancienne.db');
+
+  // base telle que créée par la version précédente (4 premières migrations) : 4 classes, un apprenti en MCO
+  const ancienne = new DatabaseSync(chemin);
+  for (const m of MIGRATIONS.slice(0, 4)) ancienne.exec(m);
+  ancienne.exec('PRAGMA user_version = 4');
+  const mco = ancienne.prepare("SELECT id FROM classes WHERE code = 'MCO'").get().id;
+  ancienne.prepare("INSERT INTO jeunes (nom, prenom, classe_id) VALUES ('Durand', 'Léa', ?)").run(mco);
+  ancienne.close();
+
+  const db = ouvrir(chemin);
+  const classes = db.appeler('classes:list');
+  assert.deepStrictEqual(classes.map((c) => c.code), [
+    'GPME 1ère année', 'GPME 2ème année', 'MCO 1ère année', 'MCO 2ème année',
+    'NDRC 1ère année', 'NDRC 2ème année', 'LCVM 3ème année',
+  ]);
+  const apprenti = db.appeler('jeunes:list')[0];
+  assert.strictEqual(apprenti.nom, 'Durand');
+  assert.strictEqual(apprenti.classe_code, 'MCO 1ère année'); // l'apprenti reste dans sa classe
+  db.fermer();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});

@@ -10,6 +10,10 @@ const base = {
   date_debut: '2026-11-03', date_fin: '2026-11-04', duree_minutes: 14 * 60 + 5,
   maitre_nom: 'M. Martin', maitre_email: 'paul@martin.example', entreprise_email: 'contact@martin.example',
   motif_libelle: 'Arrêt maladie', motif_statut: 'recevable',
+  creneaux: [
+    { date: '2026-11-03', heure_debut: '08:30', heure_fin: '12:00', duree_minutes: 210 },
+    { date: '2026-11-04', heure_debut: '13:30', heure_fin: '17:05', duree_minutes: 215 },
+  ],
 };
 
 test('message : absence sur plusieurs jours avec motif', () => {
@@ -18,6 +22,7 @@ test('message : absence sur plusieurs jours avec motif', () => {
   assert.strictEqual(m.objet, 'Absence de Léa Durand du 03/11/2026 au 04/11/2026');
   assert.match(m.corps, /^Bonjour M\. Martin,/);
   assert.match(m.corps, /absent\(e\) du 03\/11\/2026 au 04\/11\/2026/);
+  assert.match(m.corps, /Créneaux concernés :\n- le 03\/11\/2026 de 08:30 à 12:00 \(3 h 30\)\n- le 04\/11\/2026 de 13:30 à 17:05 \(3 h 35\)/);
   assert.match(m.corps, /Durée totale d'absence : 14 h 05/);
   assert.match(m.corps, /Motif : Arrêt maladie \(recevable\)/);
   assert.strictEqual(m.avertissement, null);
@@ -26,12 +31,14 @@ test('message : absence sur plusieurs jours avec motif', () => {
 test('message : retard sans motif, adresse de repli, observations jamais incluses', () => {
   const m = composer({
     ...base, type: 'retard', date_fin: null, duree_minutes: 12, maitre_nom: null, maitre_email: null,
+    creneaux: [{ date: '2026-11-03', heure_debut: '08:30', heure_fin: '08:42', duree_minutes: 12 }],
     motif_libelle: null, motif_statut: null, observations: 'confidentiel',
   });
   assert.strictEqual(m.a, 'contact@martin.example');
   assert.strictEqual(m.objet, 'Retard de Léa Durand le 03/11/2026');
   assert.match(m.corps, /^Bonjour,/);
   assert.match(m.corps, /en retard le 03\/11\/2026/);
+  assert.match(m.corps, /Créneau concerné :\n- le 03\/11\/2026 : cours prévu à 08:30, arrivée à 08:42 \(12 min\)/);
   assert.match(m.corps, /Durée du retard : 12 min/);
   assert.match(m.corps, /Motif : en attente de justificatif/);
   assert.ok(!m.corps.includes('confidentiel'));

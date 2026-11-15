@@ -1,18 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   appeler, courriel, fichiers,
-  type Apercu, type Classe, type Evenement, type FiltresEvenements, type Jeune, type Motif, type Piece, type PieceChoisie, type ResultatCourriel,
+  type Apercu, type Classe, type Creneau, type Evenement, type FiltresEvenements, type Jeune, type Motif, type Piece, type PieceChoisie, type ResultatCourriel,
 } from '../api';
-import { aujourdhui, formaterDate, formaterDuree, formaterTaille } from '../format';
+import { ajouterJours, aujourdhui, enMinutes, formaterDate, formaterDuree, formaterTaille } from '../format';
 
 type Fiche = {
   id?: number;
   jeune_id: number;
   type: 'absence' | 'retard';
-  date_debut: string;
-  date_fin: string;
-  heures: number;
-  minutes: number;
+  creneaux: Creneau[];
   motif_id: number | null;
   observations: string;
   mail_copie: string;
@@ -62,8 +59,7 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
   function nouveau() {
     setErreur(''); setInfo(''); setExistantes([]); setNouvelles([]);
     setFiche({
-      jeune_id: filtres.jeune_id ?? 0, type: 'absence', date_debut: aujourdhui(), date_fin: aujourdhui(),
-      heures: 0, minutes: 0, motif_id: null, observations: '', mail_copie: '',
+      jeune_id: filtres.jeune_id ?? 0, type: 'absence', creneaux: [{ date: aujourdhui(), heure_debut: '', heure_fin: '' }], motif_id: null, observations: '', mail_copie: '',
     });
   }
 
@@ -71,8 +67,12 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
     setErreur(''); setInfo(''); setNouvelles([]);
     setExistantes(await appeler<Piece[]>('pieces:list', e.id));
     setFiche({
-      id: e.id, jeune_id: e.jeune_id, type: e.type, date_debut: e.date_debut, date_fin: e.date_fin ?? e.date_debut,
-      heures: Math.floor(e.duree_minutes / 60), minutes: e.duree_minutes % 60, motif_id: e.motif_id,
+      id: e.id, jeune_id: e.jeune_id, type: e.type,
+      // anciennes saisies sans horaires : on propose la date, les heures sont à compléter
+      creneaux: e.creneaux.length
+        ? e.creneaux.map(({ date, heure_debut, heure_fin }) => ({ date, heure_debut, heure_fin }))
+        : [{ date: e.date_debut, heure_debut: '', heure_fin: '' }],
+      motif_id: e.motif_id,
       observations: e.observations ?? '', mail_copie: e.mail_copie ?? '',
     });
   }
@@ -99,9 +99,7 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
     if (!fiche) return;
     try {
       const id = await appeler<number>('evenements:save', {
-        id: fiche.id, jeune_id: fiche.jeune_id, type: fiche.type, date_debut: fiche.date_debut,
-        date_fin: fiche.type === 'absence' ? fiche.date_fin : null,
-        duree_minutes: Math.round(fiche.heures) * 60 + Math.round(fiche.minutes),
+        id: fiche.id, jeune_id: fiche.jeune_id, type: fiche.type, creneaux: fiche.creneaux,
         motif_id: fiche.motif_id, observations: fiche.observations, mail_copie: fiche.mail_copie,
       });
       let message = '';
@@ -158,6 +156,17 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
     await appeler('evenements:notifier', { ids: [notif.evenement.id], notifie: true });
     setNotif(null);
     charger();
+  }
+
+  const dureeCreneau = (c: Creneau) => (c.heure_debut && c.heure_fin ? enMinutes(c.heure_fin) - enMinutes(c.heure_debut) : null);
+  const dureeTotale = fiche ? fiche.creneaux.reduce((t, c) => t + Math.max(dureeCreneau(c) ?? 0, 0), 0) : 0;
+  const majCreneau = (i: number, champ: keyof Creneau, valeur: string) =>
+    setFiche((f) => f && { ...f, creneaux: f.creneaux.map((c, k) => (k === i ? { ...c, [champ]: valeur } : c)) });
+  function ajouterCreneau() {
+    if (!fiche) return;
+    const dernier = fiche.creneaux[fiche.creneaux.length - 1];
+    // même horaire, jour suivant : il suffit en général d'ajuster la date
+    setFiche({ ...fiche, creneaux: [...fiche.creneaux, { date: dernier?.date ? ajouterJours(dernier.date, 1) : aujourdhui(), heure_debut: dernier?.heure_debut ?? '', heure_fin: dernier?.heure_fin ?? '' }] });
   }
 
   const statutMotif = fiche ? motifDe(fiche.motif_id)?.statut : undefined;
@@ -273,25 +282,10 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
               </select>
             </label>
             <label>Type *
-              <select value={fiche.type} onChange={(e) => setFiche({ ...fiche, type: e.target.value as Fiche['type'] })}>
+              <select value={fiche.type} onChange={(e) => { const type = e.target.value as Fiche['type']; setFiche({ ...fiche, type, creneaux: type === 'retard' ? fiche.creneaux.slice(0, 1) : fiche.creneaux }); }}>
                 <option value="absence">Absence</option>
                 <option value="retard">Retard</option>
               </select>
-            </label>
-            <label>{fiche.type === 'absence' ? 'Du *' : 'Date *'}
-              <input type="date" required value={fiche.date_debut}
-                onChange={(e) => setFiche({ ...fiche, date_debut: e.target.value, date_fin: fiche.date_fin < e.target.value ? e.target.value : fiche.date_fin })} />
-            </label>
-            {fiche.type === 'absence' ? (
-              <label>Au (inclus) *
-                <input type="date" required min={fiche.date_debut} value={fiche.date_fin} onChange={(e) => setFiche({ ...fiche, date_fin: e.target.value })} />
-              </label>
-            ) : <span />}
-            <label>{fiche.type === 'absence' ? "Durée totale d'absence *" : 'Durée du retard *'}
-              <span className="duree">
-                <input type="number" min={0} max={999} value={fiche.heures} onChange={(e) => setFiche({ ...fiche, heures: Number(e.target.value) })} /> h
-                <input type="number" min={0} max={59} value={fiche.minutes} onChange={(e) => setFiche({ ...fiche, minutes: Number(e.target.value) })} /> min
-              </span>
             </label>
             <label>Motif
               <select value={fiche.motif_id ?? ''} onChange={(e) => setFiche({ ...fiche, motif_id: e.target.value ? Number(e.target.value) : null })}>
@@ -301,6 +295,31 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
               {statutMotif && <span className={`etiquette ${statutMotif}`} style={{ alignSelf: 'flex-start' }}>{statutMotif === 'recevable' ? 'Recevable' : 'Irrecevable'}</span>}
             </label>
           </div>
+
+          <h3>{fiche.type === 'absence' ? "Créneaux d'absence" : 'Retard'}</h3>
+          {fiche.creneaux.map((c, i) => {
+            const d = dureeCreneau(c);
+            const retard = fiche.type === 'retard';
+            return (
+              <div className="creneau" key={i}>
+                <label>Date *<input type="date" required value={c.date} onChange={(e) => majCreneau(i, 'date', e.target.value)} /></label>
+                <label>{retard ? 'Début du cours *' : 'De *'}<input type="time" required value={c.heure_debut} onChange={(e) => majCreneau(i, 'heure_debut', e.target.value)} /></label>
+                <label>{retard ? 'Arrivée *' : 'À *'}<input type="time" required value={c.heure_fin} onChange={(e) => majCreneau(i, 'heure_fin', e.target.value)} /></label>
+                <span className="calcule">
+                  {d === null ? '—' : d <= 0 ? <span className="erreur">fin avant le début</span> : <>= <strong>{formaterDuree(d)}</strong></>}
+                </span>
+                {!retard && fiche.creneaux.length > 1 && (
+                  <button type="button" onClick={() => setFiche({ ...fiche, creneaux: fiche.creneaux.filter((_, k) => k !== i) })}>Retirer</button>
+                )}
+              </div>
+            );
+          })}
+          {fiche.type === 'absence' && <button type="button" onClick={ajouterCreneau}>Ajouter un créneau (autre jour ou autre horaire)</button>}
+          <p className="total">
+            {fiche.type === 'absence' ? "Durée totale d'absence" : 'Durée du retard'} : <strong>{dureeTotale ? formaterDuree(dureeTotale) : '—'}</strong>{' '}
+            <span className="discret">(calculée automatiquement)</span>
+          </p>
+
           <div className="grille" style={{ marginTop: 12 }}>
             <label>Observations
               <textarea rows={3} value={fiche.observations} onChange={(e) => setFiche({ ...fiche, observations: e.target.value })} />
@@ -343,14 +362,22 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
       ) : (
         <table>
           <thead>
-            <tr><th>Date</th><th>Apprenti</th><th>Durée</th><th>Motif</th><th>Entreprise notifiée</th><th></th></tr>
+            <tr><th>Créneau(x)</th><th>Apprenti</th><th>Durée totale</th><th>Motif</th><th>Entreprise notifiée</th><th></th></tr>
           </thead>
           <tbody>
             {liste.map((e) => (
               <tr key={e.id}>
                 <td>
-                  {formaterDate(e.date_debut)}{e.date_fin && e.date_fin !== e.date_debut && <> → {formaterDate(e.date_fin)}</>}
                   <div className="discret">{e.type === 'absence' ? 'Absence' : 'Retard'}</div>
+                  {e.creneaux.length ? (
+                    e.creneaux.map((c) => (
+                      <div key={c.id} style={{ whiteSpace: 'nowrap' }}>
+                        {formaterDate(c.date)} · {c.heure_debut} → {c.heure_fin}{e.type === 'retard' ? ' (arrivée)' : ''}
+                      </div>
+                    ))
+                  ) : (
+                    <>{formaterDate(e.date_debut)}{e.date_fin && e.date_fin !== e.date_debut && <> → {formaterDate(e.date_fin)}</>}</>
+                  )}
                 </td>
                 <td>
                   <strong>{e.jeune_nom} {e.jeune_prenom}</strong> <span className="discret">{e.classe_code}</span>

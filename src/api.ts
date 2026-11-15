@@ -64,6 +64,8 @@ export type Motif = {
   nb_utilisations?: number;
 };
 
+export type Creneau = { id?: number; date: string; heure_debut: string; heure_fin: string; duree_minutes?: number };
+
 export type Evenement = {
   id: number;
   jeune_id: number;
@@ -82,6 +84,7 @@ export type Evenement = {
   motif_libelle: string | null;
   motif_statut: 'recevable' | 'irrecevable' | null;
   nb_pieces: number;
+  creneaux: Creneau[];
 };
 
 export type Piece = { id: number; nom_fichier: string; taille: number };

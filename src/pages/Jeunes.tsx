@@ -78,7 +78,7 @@ export default function Jeunes() {
             <label>Téléphone<input type="tel" {...champ('telephone')} /></label>
             <label>Classe *
               <select value={fiche.classe_id} onChange={(e) => setFiche({ ...fiche, classe_id: Number(e.target.value) })}>
-                {classes.map((c) => <option key={c.id} value={c.id}>{c.code} · {c.libelle}</option>)}
+                {classes.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
               </select>
             </label>
             <label>Entreprise
