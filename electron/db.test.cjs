@@ -1,5 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { DatabaseSync } = require('node:sqlite');
 const { ouvrir } = require('./db.cjs');
 
 test('schéma, classes par défaut, jeunes et entreprises', () => {
@@ -37,4 +41,41 @@ test('schéma, classes par défaut, jeunes et entreprises', () => {
   db.ecrireReglage('x', 'b');
   assert.strictEqual(db.lireReglage('x'), 'b');
   db.fermer();
+});
+
+test('motifs : création unique, statut obligatoire, suppression protégée', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'sa-motifs-'));
+  const chemin = path.join(dossier, 'base.db');
+  const db = ouvrir(chemin);
+  const avant = db.appeler('motifs:list').length;
+  const id = db.appeler('motifs:save', { libelle: ' Grève des transports ', statut: 'recevable' });
+  assert.strictEqual(db.appeler('motifs:list').length, avant + 1);
+  assert.strictEqual(db.appeler('motifs:list').find((m) => m.id === id).libelle, 'Grève des transports');
+
+  // doublon refusé, même avec des majuscules différentes
+  assert.throws(() => db.appeler('motifs:save', { libelle: 'grève des TRANSPORTS', statut: 'irrecevable' }), /existe déjà/);
+  assert.throws(() => db.appeler('motifs:save', { libelle: 'GREVE  des transports', statut: 'irrecevable' }), /existe déjà/);
+  // modifier un motif sans changer son libellé reste possible
+  db.appeler('motifs:save', { id, libelle: 'Grève des transports', statut: 'recevable' });
+  assert.throws(() => db.appeler('motifs:save', { libelle: '', statut: 'recevable' }), /obligatoire/);
+  assert.throws(() => db.appeler('motifs:save', { libelle: 'X', statut: 'peut-être' }), /recevable ou irrecevable/);
+
+  // modification du statut
+  db.appeler('motifs:save', { id, libelle: 'Grève des transports', statut: 'irrecevable' });
+  assert.strictEqual(db.appeler('motifs:list').find((m) => m.id === id).statut, 'irrecevable');
+
+  // un motif utilisé par une absence ne se supprime pas (l'absence est insérée par une 2e connexion)
+  const jid = db.appeler('jeunes:save', { nom: 'A', prenom: 'B', classe_id: db.appeler('classes:list')[0].id });
+  const autre = new DatabaseSync(chemin);
+  autre.prepare("INSERT INTO evenements (jeune_id, type, date_debut, motif_id) VALUES (?, 'absence', '2026-11-10', ?)").run(jid, id);
+  autre.close();
+  assert.strictEqual(db.appeler('motifs:list').find((m) => m.id === id).nb_utilisations, 1);
+  assert.throws(() => db.appeler('motifs:delete', id), /utilisé par 1/);
+
+  // un motif jamais utilisé se supprime
+  const libre = db.appeler('motifs:save', { libelle: 'Motif libre', statut: 'recevable' });
+  db.appeler('motifs:delete', libre);
+  assert.ok(!db.appeler('motifs:list').some((m) => m.id === libre));
+  db.fermer();
+  fs.rmSync(dossier, { recursive: true, force: true });
 });

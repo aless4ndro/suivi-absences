@@ -45,3 +45,6 @@ td.droite { text-align: right; white-space: nowrap; }
 .connexion .fiche { width: 420px; margin: 0; }
 .succes { color: #1a7a3a; margin: 12px 0 0; }
 section.fiche p.discret { margin: 0 0 12px; }
+.etiquette { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 13px; font-weight: 600; }
+.etiquette.recevable { background: #e1f4e7; color: #1a7a3a; }
+.etiquette.irrecevable { background: #fbe4e2; color: var(--danger); }

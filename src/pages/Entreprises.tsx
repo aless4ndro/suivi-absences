@@ -31,7 +31,7 @@ export default function Entreprises() {
   }
 
   async function supprimer(ent: Entreprise) {
-    const suite = ent.nb_jeunes ? `\n${ent.nb_jeunes} jeune(s) n'auront plus d'entreprise rattachée.` : '';
+    const suite = ent.nb_jeunes ? `\n${ent.nb_jeunes} apprenti(s) n'auront plus d'entreprise rattachée.` : '';
     if (!confirm(`Supprimer l'entreprise « ${ent.nom} » ?${suite}`)) return;
     await appeler('entreprises:delete', ent.id);
     charger();
@@ -68,7 +68,7 @@ export default function Entreprises() {
       ) : (
         <table>
           <thead>
-            <tr><th>Nom</th><th>Téléphone</th><th>E-mail</th><th>Jeunes</th><th></th></tr>
+            <tr><th>Nom</th><th>Téléphone</th><th>E-mail</th><th>Apprentis</th><th></th></tr>
           </thead>
           <tbody>
             {liste.map((ent) => (

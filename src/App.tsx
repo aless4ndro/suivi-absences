@@ -5,10 +5,12 @@ import Jeunes from './pages/Jeunes';
 import Entreprises from './pages/Entreprises';
 import Connexion from './pages/Connexion';
 import Parametres from './pages/Parametres';
+import Motifs from './pages/Motifs';
 
 const PAGES = [
   { id: 'accueil', titre: 'Accueil' },
-  { id: 'jeunes', titre: 'Jeunes' },
+  { id: 'jeunes', titre: 'Apprentis' },
+  { id: 'motifs', titre: 'Motifs' },
   { id: 'entreprises', titre: 'Entreprises' },
   { id: 'absences', titre: 'Absences et retards', aVenir: true },
   { id: 'rattrapages', titre: 'Rattrapages', aVenir: true },
@@ -50,6 +52,7 @@ export default function App() {
         {page === 'accueil' && <Accueil allerA={(id) => setPage(id as PageId)} />}
         {page === 'jeunes' && <Jeunes />}
         {page === 'entreprises' && <Entreprises />}
+        {page === 'motifs' && <Motifs />}
         {page === 'parametres' && <Parametres apresRestauration={rafraichir} />}
         {'aVenir' in courante && (
           <>

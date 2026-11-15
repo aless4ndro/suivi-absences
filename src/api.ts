@@ -55,3 +55,10 @@ export async function fichiers<T = any>(action: string): Promise<T> {
     throw nettoyer(e);
   }
 }
+
+export type Motif = {
+  id?: number;
+  libelle: string;
+  statut: 'recevable' | 'irrecevable';
+  nb_utilisations?: number;
+};

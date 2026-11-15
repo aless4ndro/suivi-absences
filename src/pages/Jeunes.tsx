@@ -53,8 +53,8 @@ export default function Jeunes() {
   return (
     <>
       <div className="entete">
-        <h1>Jeunes</h1>
-        <button className="principal" onClick={nouveau}>Ajouter un jeune</button>
+        <h1>Apprentis</h1>
+        <button className="principal" onClick={nouveau}>Ajouter un apprenti</button>
       </div>
 
       <div className="onglets">
@@ -70,7 +70,7 @@ export default function Jeunes() {
 
       {fiche && (
         <form className="fiche" onSubmit={enregistrer}>
-          <h2>{fiche.id ? 'Modifier la fiche' : 'Nouveau jeune'}</h2>
+          <h2>{fiche.id ? 'Modifier la fiche' : 'Nouvel apprenti'}</h2>
           <div className="grille">
             <label>Nom *<input autoFocus required {...champ('nom')} /></label>
             <label>Prénom *<input required {...champ('prenom')} /></label>
@@ -106,11 +106,11 @@ export default function Jeunes() {
       )}
 
       {visibles.length === 0 ? (
-        <p className="discret">Aucun jeune enregistré ici pour le moment.</p>
+        <p className="discret">Aucun apprenti enregistré ici pour le moment.</p>
       ) : (
         <table>
           <thead>
-            <tr><th>Jeune</th><th>Classe</th><th>Entreprise</th><th>Maître d'apprentissage</th><th></th></tr>
+            <tr><th>Apprenti</th><th>Classe</th><th>Entreprise</th><th>Maître d'apprentissage</th><th></th></tr>
           </thead>
           <tbody>
             {visibles.map((j) => (

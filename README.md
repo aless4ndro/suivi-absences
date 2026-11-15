@@ -22,7 +22,7 @@ npm run dist   # produit release/SuiviAbsences.exe (sous Windows)
 
 ## Avancement
 
-- [x] Base du projet, classes, fiches jeunes, entreprises et maîtres d'apprentissage
+- [x] Base du projet, classes, fiches apprentis, entreprises et maîtres d'apprentissage
 - [x] Connexion par mot de passe (haché, blocage 30 s après 5 échecs)
 - [x] Sauvegarde et restauration de la base (page Paramètres)
 - [ ] Absences et retards (motifs, observations, mail copié, pièces jointes)

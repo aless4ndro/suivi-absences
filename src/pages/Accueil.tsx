@@ -27,7 +27,7 @@ export default function Accueil({ allerA }: { allerA: (page: string) => void }) 
         )}
       </div>
       <p className="discret">
-        Commencez par enregistrer les entreprises, puis les jeunes de chaque classe.
+        Commencez par enregistrer les entreprises, puis les apprentis de chaque classe.
       </p>
     </>
   );

@@ -91,12 +91,19 @@ const MIGRATIONS = [
   `,
   // v2 : réglages (mot de passe)
   `CREATE TABLE reglages (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);`,
+  // v3 : un motif ne peut être créé qu'une seule fois (sans tenir compte des majuscules)
+  `CREATE UNIQUE INDEX motifs_libelle_unique ON motifs (libelle COLLATE NOCASE);`,
 ];
 
 function vide(v) {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
   return s === '' ? null : s;
+}
+
+// Clé de comparaison : sans majuscules, sans accents, espaces uniformisés.
+function cle(texte) {
+  return String(texte).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function ouvrir(chemin) {
@@ -118,7 +125,43 @@ function ouvrir(chemin) {
   const actions = {
     'classes:list': () => db.prepare('SELECT * FROM classes ORDER BY id').all(),
 
-    'motifs:list': () => db.prepare('SELECT * FROM motifs ORDER BY statut DESC, libelle').all(),
+    'motifs:list': () =>
+      db.prepare(
+        `SELECT m.*, (SELECT COUNT(*) FROM evenements e WHERE e.motif_id = m.id) AS nb_utilisations
+         FROM motifs m ORDER BY m.statut DESC, m.libelle COLLATE NOCASE`
+      ).all(),
+
+    'motifs:save': (m) => {
+      const libelle = vide(m.libelle);
+      if (!libelle) throw new Error('Le libellé du motif est obligatoire.');
+      if (m.statut !== 'recevable' && m.statut !== 'irrecevable') {
+        throw new Error('Choisissez si le motif est recevable ou irrecevable.');
+      }
+      const doublon = db.prepare('SELECT id, libelle FROM motifs').all()
+        .some((x) => x.id !== m.id && cle(x.libelle) === cle(libelle));
+      if (doublon) throw new Error('Ce motif existe déjà.');
+      try {
+        if (m.id) {
+          db.prepare('UPDATE motifs SET libelle=?, statut=? WHERE id=?').run(libelle, m.statut, m.id);
+          return m.id;
+        }
+        return Number(db.prepare('INSERT INTO motifs (libelle, statut) VALUES (?,?)').run(libelle, m.statut).lastInsertRowid);
+      } catch (e) {
+        if (/UNIQUE/i.test(e.message)) throw new Error('Ce motif existe déjà.');
+        throw e;
+      }
+    },
+
+    'motifs:delete': (id) => {
+      const n = db.prepare('SELECT COUNT(*) AS n FROM evenements WHERE motif_id = ?').get(id).n;
+      if (n > 0) {
+        throw new Error(
+          `Ce motif est utilisé par ${n} absence(s) ou retard(s) : il ne peut pas être supprimé. Vous pouvez le modifier à la place.`
+        );
+      }
+      db.prepare('DELETE FROM motifs WHERE id=?').run(id);
+      return true;
+    },
 
     'entreprises:list': () =>
       db.prepare(
