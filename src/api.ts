@@ -14,18 +14,44 @@ export type Stats = {
   nb_entreprises: number;
 };
 
+export type Etat = { mdpDefini: boolean; deverrouille: boolean };
+
 declare global {
   interface Window {
-    api: { appeler: (action: string, arg?: unknown) => Promise<any> };
+    api: {
+      appeler: (action: string, arg?: unknown) => Promise<any>;
+      auth: (action: string, arg?: unknown) => Promise<any>;
+      fichiers: (action: string) => Promise<any>;
+    };
   }
+}
+
+function nettoyer(e: unknown): Error {
+  // Electron préfixe le message d'erreur : on ne garde que la partie utile
+  const msg = e instanceof Error ? e.message : String(e);
+  return new Error(msg.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
 }
 
 export async function appeler<T>(action: string, arg?: unknown): Promise<T> {
   try {
     return await window.api.appeler(action, arg);
   } catch (e) {
-    // Electron préfixe le message d'erreur : on ne garde que la partie utile
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(msg.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    throw nettoyer(e);
+  }
+}
+
+export async function auth<T = any>(action: string, arg?: unknown): Promise<T> {
+  try {
+    return await window.api.auth(action, arg);
+  } catch (e) {
+    throw nettoyer(e);
+  }
+}
+
+export async function fichiers<T = any>(action: string): Promise<T> {
+  try {
+    return await window.api.fichiers(action);
+  } catch (e) {
+    throw nettoyer(e);
   }
 }

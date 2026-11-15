@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { auth, type Etat } from './api';
 import Accueil from './pages/Accueil';
 import Jeunes from './pages/Jeunes';
 import Entreprises from './pages/Entreprises';
+import Connexion from './pages/Connexion';
+import Parametres from './pages/Parametres';
 
 const PAGES = [
   { id: 'accueil', titre: 'Accueil' },
@@ -11,12 +14,24 @@ const PAGES = [
   { id: 'rattrapages', titre: 'Rattrapages', aVenir: true },
   { id: 'calendrier', titre: 'Calendrier', aVenir: true },
   { id: 'envois', titre: 'Récapitulatifs', aVenir: true },
+  { id: 'parametres', titre: 'Paramètres' },
 ] as const;
 
 type PageId = (typeof PAGES)[number]['id'];
 
 export default function App() {
   const [page, setPage] = useState<PageId>('accueil');
+  const [etat, setEtat] = useState<Etat | null>(null);
+  const rafraichir = () => auth<Etat>('etat').then(setEtat);
+  useEffect(() => {
+    rafraichir();
+  }, []);
+
+  if (!etat) return null;
+  if (!etat.deverrouille) {
+    return <Connexion mdpDefini={etat.mdpDefini} onOk={() => { setPage('accueil'); rafraichir(); }} />;
+  }
+
   const courante = PAGES.find((p) => p.id === page)!;
 
   return (
@@ -29,11 +44,13 @@ export default function App() {
             {'aVenir' in p && <span className="badge">bientôt</span>}
           </button>
         ))}
+        <button className="bas" onClick={() => auth('verrouiller').then(rafraichir)}>Verrouiller</button>
       </nav>
       <main>
         {page === 'accueil' && <Accueil allerA={(id) => setPage(id as PageId)} />}
         {page === 'jeunes' && <Jeunes />}
         {page === 'entreprises' && <Entreprises />}
+        {page === 'parametres' && <Parametres apresRestauration={rafraichir} />}
         {'aVenir' in courante && (
           <>
             <h1>{courante.titre}</h1>

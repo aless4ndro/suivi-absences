@@ -1,5 +1,6 @@
 // Base de données locale (SQLite intégré à Node, aucun module natif à compiler).
 const { DatabaseSync } = require('node:sqlite');
+const fs = require('node:fs');
 
 const MIGRATIONS = [
   // v1 : schéma initial
@@ -88,6 +89,8 @@ const MIGRATIONS = [
     ('Problème de transport', 'irrecevable'),
     ('Sans justificatif', 'irrecevable');
   `,
+  // v2 : réglages (mot de passe)
+  `CREATE TABLE reglages (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);`,
 ];
 
 function vide(v) {
@@ -193,10 +196,23 @@ function ouvrir(chemin) {
       if (!f) throw new Error(`Action inconnue : ${action}`);
       return f(arg);
     },
+    // Réglages internes : jamais exposés à l'interface.
+    lireReglage(cle) {
+      const r = db.prepare('SELECT valeur FROM reglages WHERE cle = ?').get(cle);
+      return r ? r.valeur : null;
+    },
+    ecrireReglage(cle, valeur) {
+      db.prepare('INSERT INTO reglages (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur').run(cle, valeur);
+    },
+    // Copie cohérente de toute la base dans un seul fichier.
+    sauvegarder(chemin) {
+      if (fs.existsSync(chemin)) fs.rmSync(chemin);
+      db.exec(`VACUUM INTO '${chemin.replace(/'/g, "''")}'`);
+    },
     fermer() {
       db.close();
     },
   };
 }
 
-module.exports = { ouvrir };
+module.exports = { ouvrir, VERSION: MIGRATIONS.length };

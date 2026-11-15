@@ -40,3 +40,8 @@ th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--bo
 th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--discret); background: #fafbfc; }
 tr:last-child td { border-bottom: 0; }
 td.droite { text-align: right; white-space: nowrap; }
+.menu button.bas { margin-top: auto; border: 1px solid #2c405e; justify-content: center; }
+.connexion { display: flex; height: 100vh; align-items: center; justify-content: center; }
+.connexion .fiche { width: 420px; margin: 0; }
+.succes { color: #1a7a3a; margin: 12px 0 0; }
+section.fiche p.discret { margin: 0 0 12px; }

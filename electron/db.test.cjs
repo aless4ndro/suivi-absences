@@ -32,5 +32,9 @@ test('schéma, classes par défaut, jeunes et entreprises', () => {
   assert.throws(() => db.appeler('jeunes:save', { nom: '', prenom: 'x', classe_id: 1 }));
   assert.throws(() => db.appeler('inconnue'));
   assert.strictEqual(db.appeler('stats').classes[0].nb_jeunes, 1);
+  assert.strictEqual(db.lireReglage('x'), null);
+  db.ecrireReglage('x', 'a');
+  db.ecrireReglage('x', 'b');
+  assert.strictEqual(db.lireReglage('x'), 'b');
   db.fermer();
 });
