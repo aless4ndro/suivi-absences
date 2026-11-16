@@ -21,7 +21,7 @@ function nomSur(nom) {
 }
 
 // d : résultat de l'action 'evenements:detail'
-function composer(d) {
+function composer(d, choisis) {
   const nom = `${d.jeune_prenom} ${d.jeune_nom}`;
   const absence = d.type === 'absence';
   const multi = absence && d.date_fin && d.date_fin !== d.date_debut;
@@ -36,18 +36,22 @@ function composer(d) {
     ? `${d.motif_libelle} (${d.motif_statut === 'recevable' ? 'recevable' : 'irrecevable'})`
     : 'en attente de justificatif';
 
-  const lignes = (d.creneaux ?? []).map((c) =>
-    absence
-      ? `- le ${jourMois(c.date)} de ${c.heure_debut} à ${c.heure_fin} (${formaterDuree(c.duree_minutes)})`
-      : `- le ${jourMois(c.date)} : cours prévu à ${c.heure_debut}, arrivée à ${c.heure_fin} (${formaterDuree(c.duree_minutes)})`
-  );
+  // Une ligne par jour (matin et après-midi regroupés), pour qu'un arrêt de plusieurs jours reste lisible.
+  const parJour = new Map();
+  for (const c of d.creneaux ?? []) parJour.set(c.date, [...(parJour.get(c.date) ?? []), c]);
+  const lignes = [...parJour.entries()].map(([date, cs]) => {
+    const total = formaterDuree(cs.reduce((t, c) => t + c.duree_minutes, 0));
+    return absence
+      ? `- le ${jourMois(date)} de ${cs.map((c) => `${c.heure_debut} à ${c.heure_fin}`).join(' et de ')} (${total})`
+      : `- le ${jourMois(date)} : cours prévu à ${cs[0].heure_debut}, arrivée à ${cs[0].heure_fin} (${total})`;
+  });
 
   const corps = [
     `Bonjour${d.maitre_nom ? ` ${d.maitre_nom}` : ''},`,
     '',
     `Nous vous informons que ${nom} (${d.classe_code}), apprenti(e) au sein de votre entreprise, a été ${fait}.`,
     '',
-    ...(lignes.length ? [lignes.length > 1 ? 'Créneaux concernés :' : 'Créneau concerné :', ...lignes, ''] : []),
+    ...(lignes.length ? [lignes.length > 1 ? 'Jours concernés :' : 'Jour concerné :', ...lignes, ''] : []),
     `${absence ? "Durée totale d'absence" : 'Durée du retard'} : ${formaterDuree(d.duree_minutes)}`,
     `Motif : ${motif}`,
     '',
@@ -56,12 +60,15 @@ function composer(d) {
     'Cordialement,',
   ].join('\n');
 
-  const a = d.maitre_email || d.entreprise_email || '';
+  // Destinataires : ceux cochés (parmi les adresses connues de cet apprenti), sinon le maître puis l'entreprise.
+  const connues = new Set((d.destinataires ?? []).map((x) => x.email));
+  const retenus = Array.isArray(choisis) ? choisis.filter((m) => connues.has(m)) : null;
+  const a = retenus ? retenus.join('; ') : d.maitre_email || d.entreprise_email || '';
   return {
     a,
     objet,
     corps,
-    avertissement: a ? null : "Aucune adresse e-mail n'est renseignée pour le maître d'apprentissage ni pour l'entreprise. Complétez la fiche, ou saisissez l'adresse directement dans Outlook.",
+    avertissement: a ? null : "Aucune adresse e-mail n'est choisie ou renseignée (maître d'apprentissage, entreprise, interlocuteurs). Complétez la fiche, ou saisissez l'adresse directement dans Outlook.",
   };
 }
 

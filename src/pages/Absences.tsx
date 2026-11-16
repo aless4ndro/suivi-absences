@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   appeler, courriel, fichiers,
-  type Apercu, type Classe, type Creneau, type Evenement, type FiltresEvenements, type Jeune, type Motif, type Piece, type PieceChoisie, type ResultatCourriel,
+  type Apercu, type Classe, type Creneau, type Destinataire, type Horaires, type Evenement, type FiltresEvenements, type Jeune, type Motif, type Piece, type PieceChoisie, type ResultatCourriel,
 } from '../api';
-import { ajouterJours, aujourdhui, enMinutes, formaterDate, formaterDuree, formaterTaille } from '../format';
+import { ajouterJours, aujourdhui, enMinutes, estWeekEnd, formaterDate, formaterDuree, formaterTaille, jourSemaine } from '../format';
 
 type Fiche = {
   id?: number;
@@ -20,8 +20,16 @@ type Notif = {
   apercu: Apercu;
   pieces: Piece[];
   choisies: number[];
+  destinataires: Destinataire[];
+  adresses: string[];
   resultat?: ResultatCourriel;
 };
+
+function parJour(creneaux: Creneau[]): [string, Creneau[]][] {
+  const m = new Map<string, Creneau[]>();
+  for (const c of creneaux) m.set(c.date, [...(m.get(c.date) ?? []), c]);
+  return [...m.entries()];
+}
 
 export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEvenements }) {
   const [classes, setClasses] = useState<Classe[]>([]);
@@ -35,12 +43,15 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
   const [erreur, setErreur] = useState('');
   const [info, setInfo] = useState('');
   const [notif, setNotif] = useState<Notif | null>(null);
+  const [horairesDefaut, setHorairesDefaut] = useState<Horaires | null>(null);
+  const [periode, setPeriode] = useState<{ du: string; au: string; h: Horaires; pause: boolean; weekend: boolean } | null>(null);
 
   const charger = () => appeler<Evenement[]>('evenements:list', filtres).then(setListe);
   useEffect(() => {
     appeler<Classe[]>('classes:list').then(setClasses);
     appeler<Jeune[]>('jeunes:list').then(setApprentis);
     appeler<Motif[]>('motifs:list').then(setMotifs);
+    appeler<Horaires>('horaires:get').then(setHorairesDefaut);
   }, []);
   useEffect(() => {
     charger();
@@ -131,11 +142,14 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
   async function preparerNotification(e: Evenement) {
     setErreur(''); setInfo(''); setFiche(null);
     try {
-      const [apercu, pieces] = await Promise.all([
+      const [apercu, pieces, destinataires] = await Promise.all([
         courriel<Apercu>('apercu', { id: e.id }),
         appeler<Piece[]>('pieces:list', e.id),
+        appeler<Destinataire[]>('destinataires:list', e.jeune_id),
       ]);
-      setNotif({ evenement: e, apercu, pieces, choisies: [] });
+      // par défaut : le maître d'apprentissage, sinon l'entreprise (comme avant)
+      const defaut = destinataires.find((d) => d.cle === 'maitre') ?? destinataires.find((d) => d.cle === 'entreprise');
+      setNotif({ evenement: e, apercu, pieces, choisies: [], destinataires, adresses: defaut ? [defaut.email] : [] });
     } catch (err) {
       setInfo((err as Error).message);
     }
@@ -144,7 +158,7 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
   async function ouvrirDansOutlook() {
     if (!notif) return;
     try {
-      const resultat = await courriel<ResultatCourriel>('ouvrir', { id: notif.evenement.id, piece_ids: notif.choisies });
+      const resultat = await courriel<ResultatCourriel>('ouvrir', { id: notif.evenement.id, piece_ids: notif.choisies, destinataires: notif.adresses });
       setNotif({ ...notif, resultat });
     } catch (err) {
       setInfo((err as Error).message);
@@ -167,6 +181,36 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
     const dernier = fiche.creneaux[fiche.creneaux.length - 1];
     // même horaire, jour suivant : il suffit en général d'ajuster la date
     setFiche({ ...fiche, creneaux: [...fiche.creneaux, { date: dernier?.date ? ajouterJours(dernier.date, 1) : aujourdhui(), heure_debut: dernier?.heure_debut ?? '', heure_fin: dernier?.heure_fin ?? '' }] });
+  }
+
+  function ouvrirPeriode() {
+    if (!fiche || !horairesDefaut) return;
+    const d = fiche.creneaux[0]?.date || aujourdhui();
+    setPeriode({ du: d, au: d, h: { ...horairesDefaut }, pause: true, weekend: false });
+  }
+
+  function genererPeriode() {
+    if (!fiche || !periode) return;
+    const { du, au, h, pause, weekend } = periode;
+    if (!du || !au || au < du) { setErreur('La date de fin doit être le même jour ou après la date de début.'); return; }
+    if (!(h.debut < h.pause_debut && h.pause_debut < h.pause_fin && h.pause_fin < h.fin)) {
+      setErreur('Les heures de la journée doivent se suivre : début, début de pause, fin de pause, fin.'); return;
+    }
+    const lignes: Creneau[] = [];
+    for (let jour = du, n = 0; jour <= au && n < 120; jour = ajouterJours(jour, 1), n++) {
+      if (!weekend && estWeekEnd(jour)) continue;
+      if (pause) {
+        lignes.push({ date: jour, heure_debut: h.debut, heure_fin: h.pause_debut });
+        lignes.push({ date: jour, heure_debut: h.pause_fin, heure_fin: h.fin });
+      } else {
+        lignes.push({ date: jour, heure_debut: h.debut, heure_fin: h.fin });
+      }
+    }
+    if (!lignes.length) { setErreur('Cette période ne contient que des week-ends : cochez « inclure les samedis et dimanches » si besoin.'); return; }
+    // on remplace les lignes encore vides, on garde celles déjà remplies
+    const gardees = fiche.creneaux.filter((c) => c.heure_debut && c.heure_fin);
+    setFiche({ ...fiche, creneaux: [...gardees, ...lignes] });
+    setPeriode(null); setErreur('');
   }
 
   const statutMotif = fiche ? motifDe(fiche.motif_id)?.statut : undefined;
@@ -212,8 +256,28 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
       {notif && (
         <section className="fiche">
           <h2>Notifier l'entreprise : {notif.evenement.jeune_prenom} {notif.evenement.jeune_nom}</h2>
-          {notif.apercu.avertissement && <p className="erreur">{notif.apercu.avertissement}</p>}
-          <p><strong>À :</strong> {notif.apercu.a || <span className="discret">(à saisir dans Outlook)</span>}</p>
+          {!notif.resultat && (
+            <>
+              <h3>Destinataire(s)</h3>
+              {notif.destinataires.length === 0 ? (
+                <p className="erreur">Aucune adresse e-mail connue pour cet apprenti : complétez sa fiche et celle de l'entreprise, ou saisissez l'adresse dans Outlook.</p>
+              ) : (
+                <ul className="pieces">
+                  {notif.destinataires.map((d) => (
+                    <li key={d.cle}>
+                      <label className="case">
+                        <input type="checkbox" checked={notif.adresses.includes(d.email)}
+                          onChange={(ev) => setNotif({ ...notif, adresses: ev.target.checked ? [...notif.adresses, d.email] : notif.adresses.filter((x) => x !== d.email) })} />
+                        {d.libelle} <span className="discret">{d.email}{d.telephone ? ` · ${d.telephone}` : ''}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+          {notif.adresses.length === 0 && <p className="erreur">Aucune adresse cochée : vous saisirez le destinataire dans Outlook.</p>}
+          <p><strong>À :</strong> {notif.adresses.join('; ') || <span className="discret">(à saisir dans Outlook)</span>}</p>
           <p><strong>Objet :</strong> {notif.apercu.objet}</p>
           <pre className="apercu">{notif.apercu.corps}</pre>
           <p className="discret">Le message s'ouvre dans Outlook : relisez-le, modifiez-le si besoin, puis envoyez-le vous-même.</p>
@@ -297,6 +361,32 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
           </div>
 
           <h3>{fiche.type === 'absence' ? "Créneaux d'absence" : 'Retard'}</h3>
+          {fiche.type === 'absence' && (
+            periode ? (
+              <div className="periode">
+                <strong>Journée complète ou plusieurs jours (même motif)</strong>
+                <div className="creneau">
+                  <label>Du<input type="date" value={periode.du} onChange={(e) => setPeriode({ ...periode, du: e.target.value, au: periode.au < e.target.value ? e.target.value : periode.au })} /></label>
+                  <label>Au (inclus)<input type="date" value={periode.au} min={periode.du} onChange={(e) => setPeriode({ ...periode, au: e.target.value })} /></label>
+                </div>
+                <div className="creneau">
+                  <label>Début de journée<input type="time" value={periode.h.debut} onChange={(e) => setPeriode({ ...periode, h: { ...periode.h, debut: e.target.value } })} /></label>
+                  <label>Début de pause<input type="time" value={periode.h.pause_debut} disabled={!periode.pause} onChange={(e) => setPeriode({ ...periode, h: { ...periode.h, pause_debut: e.target.value } })} /></label>
+                  <label>Fin de pause<input type="time" value={periode.h.pause_fin} disabled={!periode.pause} onChange={(e) => setPeriode({ ...periode, h: { ...periode.h, pause_fin: e.target.value } })} /></label>
+                  <label>Fin de journée<input type="time" value={periode.h.fin} onChange={(e) => setPeriode({ ...periode, h: { ...periode.h, fin: e.target.value } })} /></label>
+                </div>
+                <label className="case"><input type="checkbox" checked={periode.pause} onChange={(e) => setPeriode({ ...periode, pause: e.target.checked })} /> Ne pas compter la pause déjeuner (matin et après-midi séparés)</label>
+                <label className="case"><input type="checkbox" checked={periode.weekend} onChange={(e) => setPeriode({ ...periode, weekend: e.target.checked })} /> Inclure les samedis et dimanches</label>
+                <p className="discret">Les jours fériés ne sont pas retirés automatiquement : supprimez les créneaux concernés si besoin.</p>
+                <div className="actions">
+                  <button type="button" className="principal" onClick={genererPeriode}>Remplir les créneaux</button>
+                  <button type="button" onClick={() => setPeriode(null)}>Annuler</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={ouvrirPeriode}>Journée complète / plusieurs jours…</button>
+            )
+          )}
           {fiche.creneaux.map((c, i) => {
             const d = dureeCreneau(c);
             const retard = fiche.type === 'retard';
@@ -370,9 +460,9 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
                 <td>
                   <div className="discret">{e.type === 'absence' ? 'Absence' : 'Retard'}</div>
                   {e.creneaux.length ? (
-                    e.creneaux.map((c) => (
-                      <div key={c.id} style={{ whiteSpace: 'nowrap' }}>
-                        {formaterDate(c.date)} · {c.heure_debut} → {c.heure_fin}{e.type === 'retard' ? ' (arrivée)' : ''}
+                    parJour(e.creneaux).map(([date, cs]) => (
+                      <div key={date} style={{ whiteSpace: 'nowrap' }}>
+                        {jourSemaine(date)} {formaterDate(date)} · {cs.map((c) => `${c.heure_debut} → ${c.heure_fin}`).join(' · ')}{e.type === 'retard' ? ' (arrivée)' : ''}
                       </div>
                     ))
                   ) : (
@@ -390,7 +480,16 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
                       {e.motif_libelle} <span className={`etiquette ${e.motif_statut}`}>{e.motif_statut === 'recevable' ? 'Recevable' : 'Irrecevable'}</span>
                     </>
                   ) : <span className="etiquette atraiter">À traiter</span>}
-                  {e.nb_pieces > 0 && <div className="discret">{e.nb_pieces} pièce(s) jointe(s)</div>}
+                  {e.pieces.length > 0 && (
+                    <div>
+                      {e.pieces.map((p) => (
+                        <button key={p.id} type="button" className="piece-lien" title={`Ouvrir ${p.nom_fichier} (${formaterTaille(p.taille)})`}
+                          onClick={() => fichiers('ouvrirPiece', { id: p.id }).catch((err) => setInfo(err.message))}>
+                          📎 {p.nom_fichier}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </td>
                 <td>
                   {e.notifie_le ? <>✓ le {formaterDate(e.notifie_le.slice(0, 10))}</> : <span className="discret">non</span>}

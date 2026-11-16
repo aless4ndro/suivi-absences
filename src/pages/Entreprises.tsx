@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { appeler, type Entreprise } from '../api';
+import { appeler, type Contact, type Entreprise } from '../api';
 
 const VIDE: Entreprise = { nom: '', adresse: '', telephone: '', email: '' };
 
@@ -7,6 +7,31 @@ export default function Entreprises() {
   const [liste, setListe] = useState<Entreprise[]>([]);
   const [fiche, setFiche] = useState<Entreprise | null>(null);
   const [erreur, setErreur] = useState('');
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contact, setContact] = useState<Contact | null>(null);
+  const [erreurContact, setErreurContact] = useState('');
+
+  const chargerContacts = (id: number) => appeler<Contact[]>('contacts:list', id).then(setContacts);
+  function ouvrirFiche(ent: Entreprise | null) {
+    setErreur(''); setContact(null); setErreurContact('');
+    setFiche(ent);
+    if (ent?.id) chargerContacts(ent.id); else setContacts([]);
+  }
+  async function enregistrerContact() {
+    if (!fiche?.id || !contact) return;
+    try {
+      await appeler('contacts:save', { ...contact, entreprise_id: fiche.id });
+      setContact(null); setErreurContact('');
+      chargerContacts(fiche.id);
+    } catch (err) {
+      setErreurContact((err as Error).message);
+    }
+  }
+  async function supprimerContact(c: Contact) {
+    if (!confirm(`Supprimer l'interlocuteur « ${c.nom} » ?`)) return;
+    await appeler('contacts:delete', c.id);
+    if (fiche?.id) chargerContacts(fiche.id);
+  }
 
   const charger = () => appeler<Entreprise[]>('entreprises:list').then(setListe);
   useEffect(() => {
@@ -41,7 +66,7 @@ export default function Entreprises() {
     <>
       <div className="entete">
         <h1>Entreprises</h1>
-        <button className="principal" onClick={() => { setFiche({ ...VIDE }); setErreur(''); }}>
+        <button className="principal" onClick={() => ouvrirFiche({ ...VIDE })}>
           Ajouter une entreprise
         </button>
       </div>
@@ -58,8 +83,48 @@ export default function Entreprises() {
           {erreur && <p className="erreur">{erreur}</p>}
           <div className="actions">
             <button type="submit" className="principal">Enregistrer</button>
-            <button type="button" onClick={() => setFiche(null)}>Annuler</button>
+            <button type="button" onClick={() => ouvrirFiche(null)}>Annuler</button>
           </div>
+
+          <h3>Autres interlocuteurs de l'entreprise</h3>
+          {!fiche.id ? (
+            <p className="discret">Enregistrez d'abord l'entreprise pour pouvoir ajouter des interlocuteurs.</p>
+          ) : (
+            <>
+              {contacts.length === 0 && <p className="discret">Aucun autre interlocuteur (le maître d'apprentissage se renseigne dans la fiche de l'apprenti).</p>}
+              <ul className="pieces">
+                {contacts.map((c) => (
+                  <li key={c.id}>
+                    <span>
+                      <strong>{c.nom}</strong>{c.fonction && <> — {c.fonction}</>}
+                      <span className="discret"> {[c.email, c.telephone].filter(Boolean).join(' · ')}</span>
+                    </span>
+                    <span>
+                      <button type="button" onClick={() => { setContact(c); setErreurContact(''); }}>Modifier</button>
+                      <button type="button" className="danger" onClick={() => supprimerContact(c)}>Supprimer</button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {contact ? (
+                <div className="grille">
+                  <label>Nom *<input value={contact.nom} onChange={(e) => setContact({ ...contact, nom: e.target.value })} /></label>
+                  <label>Fonction<input value={contact.fonction ?? ''} onChange={(e) => setContact({ ...contact, fonction: e.target.value })} /></label>
+                  <label>Téléphone<input type="tel" value={contact.telephone ?? ''} onChange={(e) => setContact({ ...contact, telephone: e.target.value })} /></label>
+                  <label>E-mail<input type="email" value={contact.email ?? ''} onChange={(e) => setContact({ ...contact, email: e.target.value })} /></label>
+                  <div className="actions">
+                    <button type="button" className="principal" onClick={enregistrerContact}>Enregistrer l'interlocuteur</button>
+                    <button type="button" onClick={() => setContact(null)}>Annuler</button>
+                  </div>
+                  {erreurContact && <p className="erreur">{erreurContact}</p>}
+                </div>
+              ) : (
+                <button type="button" onClick={() => setContact({ entreprise_id: fiche.id!, nom: '', fonction: '', telephone: '', email: '' })}>
+                  Ajouter un interlocuteur
+                </button>
+              )}
+            </>
+          )}
         </form>
       )}
 
@@ -78,7 +143,7 @@ export default function Entreprises() {
                 <td>{ent.email}</td>
                 <td>{ent.nb_jeunes}</td>
                 <td className="droite">
-                  <button onClick={() => { setFiche(ent); setErreur(''); }}>Modifier</button>
+                  <button onClick={() => ouvrirFiche(ent)}>Modifier</button>
                   <button className="danger" onClick={() => supprimer(ent)}>Supprimer</button>
                 </td>
               </tr>

@@ -26,3 +26,10 @@ export function formaterTaille(octets: number): string {
   if (octets < 1024 * 1024) return `${Math.round(octets / 1024)} Ko`;
   return `${(octets / 1024 / 1024).toFixed(1)} Mo`;
 }
+
+const JOURS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+export const jourSemaine = (iso: string) => JOURS[new Date(`${iso}T00:00:00Z`).getUTCDay()];
+export const estWeekEnd = (iso: string) => {
+  const j = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return j === 0 || j === 6;
+};

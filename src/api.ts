@@ -8,6 +8,7 @@ export type Jeune = {
   classe_id: number; entreprise_id: number | null;
   maitre_nom: string | null; maitre_telephone: string | null; maitre_email: string | null;
   classe_code?: string; entreprise_nom?: string | null;
+  entreprise_telephone?: string | null; entreprise_email?: string | null;
 };
 export type Stats = {
   classes: (Classe & { nb_jeunes: number })[];
@@ -85,7 +86,12 @@ export type Evenement = {
   motif_statut: 'recevable' | 'irrecevable' | null;
   nb_pieces: number;
   creneaux: Creneau[];
+  pieces: Piece[];
 };
+
+export type Contact = { id?: number; entreprise_id: number; nom: string; fonction: string | null; telephone: string | null; email: string | null };
+export type Destinataire = { cle: string; libelle: string; email: string; telephone: string | null };
+export type Horaires = { debut: string; pause_debut: string; pause_fin: string; fin: string };
 
 export type Piece = { id: number; nom_fichier: string; taille: number };
 export type PieceChoisie = { token: string; nom: string; taille: number };
@@ -98,7 +104,7 @@ export type FiltresEvenements = {
   notifie?: '' | 'oui' | 'non';
 };
 
-export type Apercu = { a: string; objet: string; corps: string; avertissement: string | null };
+export type Apercu = { destinataires?: Destinataire[]; a: string; objet: string; corps: string; avertissement: string | null };
 export type ResultatCourriel = { methode: 'outlook' | 'mailto'; raison?: string; nbPieces?: number };
 
 export async function courriel<T = any>(action: string, arg?: unknown): Promise<T> {

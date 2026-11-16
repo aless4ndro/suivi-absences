@@ -72,7 +72,7 @@ function brancherIpc() {
   ipcMain.handle('courriel', async (_e, action, arg = {}) => {
     exigerOuvert();
     const detail = db.appeler('evenements:detail', arg.id);
-    const message = composer(detail);
+    const message = composer(detail, arg.destinataires);
 
     if (action === 'apercu') return message;
 

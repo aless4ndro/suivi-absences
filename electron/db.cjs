@@ -128,7 +128,22 @@ const MIGRATIONS = [
   );
   CREATE INDEX creneaux_evenement ON creneaux (evenement_id);
   `,
+  // v6 : interlocuteurs supplémentaires d'une entreprise (RH, tutrice, comptabilité…)
+  `
+  CREATE TABLE contacts (
+    id INTEGER PRIMARY KEY,
+    entreprise_id INTEGER NOT NULL REFERENCES entreprises(id) ON DELETE CASCADE,
+    nom TEXT NOT NULL,
+    fonction TEXT,
+    telephone TEXT,
+    email TEXT
+  );
+  CREATE INDEX contacts_entreprise ON contacts (entreprise_id);
+  `,
 ];
+
+// Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
+const HORAIRES_DEFAUT = { debut: '08:30', pause_debut: '12:30', pause_fin: '14:00', fin: '17:30' };
 
 const TAILLE_MAX_PIECE = 10 * 1024 * 1024;
 
@@ -157,6 +172,16 @@ function ouvrir(chemin) {
   const db = new DatabaseSync(chemin);
   db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
   let version = db.prepare('PRAGMA user_version').get().user_version;
+  // Données réelles déjà saisies : avant toute mise à niveau, copie de secours à côté de la base.
+  if (version > 0 && version < MIGRATIONS.length && chemin !== ':memory:') {
+    const copie = `${chemin}.avant-mise-a-jour-v${version}.bak`;
+    try {
+      if (fs.existsSync(copie)) fs.rmSync(copie);
+      db.exec(`VACUUM INTO '${copie.replace(/'/g, "''")}'`);
+    } catch {
+      // la copie est une sécurité supplémentaire : son échec ne doit pas empêcher d'ouvrir l'application
+    }
+  }
   for (; version < MIGRATIONS.length; version++) {
     db.exec('BEGIN');
     try {
@@ -181,6 +206,24 @@ function ouvrir(chemin) {
       parEvenement.get(l.evenement_id).push(l);
     }
     return rows.map((r) => ({ ...r, creneaux: parEvenement.get(r.id) ?? [] }));
+  }
+
+  function destinatairesDe(jeuneId) {
+    const j = db.prepare(
+      `SELECT j.maitre_nom, j.maitre_telephone, j.maitre_email, j.entreprise_id, e.nom AS entreprise_nom,
+              e.telephone AS entreprise_telephone, e.email AS entreprise_email
+       FROM jeunes j LEFT JOIN entreprises e ON e.id = j.entreprise_id WHERE j.id = ?`
+    ).get(jeuneId);
+    if (!j) return [];
+    const liste = [];
+    if (j.maitre_email) liste.push({ cle: 'maitre', libelle: `Maître d'apprentissage${j.maitre_nom ? ` : ${j.maitre_nom}` : ''}`, email: j.maitre_email, telephone: j.maitre_telephone });
+    if (j.entreprise_email) liste.push({ cle: 'entreprise', libelle: `Entreprise : ${j.entreprise_nom}`, email: j.entreprise_email, telephone: j.entreprise_telephone });
+    if (j.entreprise_id) {
+      for (const c of db.prepare('SELECT * FROM contacts WHERE entreprise_id = ? ORDER BY nom COLLATE NOCASE').all(j.entreprise_id)) {
+        if (c.email) liste.push({ cle: `contact-${c.id}`, libelle: `${c.nom}${c.fonction ? ` (${c.fonction})` : ''}`, email: c.email, telephone: c.telephone });
+      }
+    }
+    return liste;
   }
 
   const actions = {
@@ -241,6 +284,57 @@ function ouvrir(chemin) {
       return Number(db.prepare('INSERT INTO entreprises (nom, adresse, telephone, email) VALUES (?,?,?,?)').run(...p).lastInsertRowid);
     },
 
+    'contacts:list': (entrepriseId) =>
+      db.prepare('SELECT * FROM contacts WHERE entreprise_id = ? ORDER BY nom COLLATE NOCASE').all(Number(entrepriseId)),
+
+    'contacts:save': (c) => {
+      const nom = vide(c.nom);
+      if (!nom) throw new Error("Le nom de l'interlocuteur est obligatoire.");
+      if (!c.entreprise_id || !db.prepare('SELECT 1 FROM entreprises WHERE id = ?').get(Number(c.entreprise_id))) {
+        throw new Error("Enregistrez d'abord l'entreprise.");
+      }
+      const p = [nom, vide(c.fonction), vide(c.telephone), vide(c.email)];
+      if (c.id) {
+        db.prepare('UPDATE contacts SET nom=?, fonction=?, telephone=?, email=? WHERE id=? AND entreprise_id=?')
+          .run(...p, Number(c.id), Number(c.entreprise_id));
+        return Number(c.id);
+      }
+      return Number(
+        db.prepare('INSERT INTO contacts (entreprise_id, nom, fonction, telephone, email) VALUES (?,?,?,?,?)')
+          .run(Number(c.entreprise_id), ...p).lastInsertRowid
+      );
+    },
+
+    'contacts:delete': (id) => {
+      db.prepare('DELETE FROM contacts WHERE id = ?').run(Number(id));
+      return true;
+    },
+
+    // Adresses possibles pour écrire à propos d'un apprenti : maître d'apprentissage, entreprise, autres interlocuteurs.
+    'destinataires:list': (jeuneId) => destinatairesDe(Number(jeuneId)),
+
+    'horaires:get': () => {
+      const lire = (k, d) => {
+        const r = db.prepare('SELECT valeur FROM reglages WHERE cle = ?').get(`horaires_${k}`);
+        return r && heureValide(r.valeur) ? r.valeur : d;
+      };
+      return {
+        debut: lire('debut', HORAIRES_DEFAUT.debut), pause_debut: lire('pause_debut', HORAIRES_DEFAUT.pause_debut),
+        pause_fin: lire('pause_fin', HORAIRES_DEFAUT.pause_fin), fin: lire('fin', HORAIRES_DEFAUT.fin),
+      };
+    },
+
+    'horaires:save': (h) => {
+      const champs = ['debut', 'pause_debut', 'pause_fin', 'fin'];
+      for (const k of champs) if (!heureValide(h?.[k])) throw new Error('Toutes les heures sont obligatoires.');
+      if (!(h.debut < h.pause_debut && h.pause_debut < h.pause_fin && h.pause_fin < h.fin)) {
+        throw new Error('Les heures doivent se suivre : début de journée, début de pause, fin de pause, fin de journée.');
+      }
+      const st = db.prepare('INSERT INTO reglages (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur');
+      for (const k of champs) st.run(`horaires_${k}`, h[k]);
+      return true;
+    },
+
     'entreprises:delete': (id) => {
       db.prepare('DELETE FROM entreprises WHERE id=?').run(id);
       return true;
@@ -248,7 +342,8 @@ function ouvrir(chemin) {
 
     'jeunes:list': () =>
       db.prepare(
-        `SELECT j.*, c.code AS classe_code, e.nom AS entreprise_nom
+        `SELECT j.*, c.code AS classe_code, e.nom AS entreprise_nom,
+                e.telephone AS entreprise_telephone, e.email AS entreprise_email
          FROM jeunes j
          JOIN classes c ON c.id = j.classe_id
          LEFT JOIN entreprises e ON e.id = j.entreprise_id
@@ -312,7 +407,13 @@ function ouvrir(chemin) {
          ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
          ORDER BY e.date_debut DESC, e.id DESC`
       ).all(...p);
-      return avecCreneaux(rows);
+      const pieces = rows.length
+        ? db.prepare(
+            `SELECT id, evenement_id, nom_fichier, taille FROM pieces_jointes
+             WHERE evenement_id IN (${rows.map(() => '?').join(',')}) ORDER BY id`
+          ).all(...rows.map((r) => r.id))
+        : [];
+      return avecCreneaux(rows).map((r) => ({ ...r, pieces: pieces.filter((x) => x.evenement_id === r.id) }));
     },
 
     'evenements:save': (e) => {
@@ -420,7 +521,7 @@ function ouvrir(chemin) {
          WHERE e.id = ?`
       ).get(Number(id));
       if (!r) throw new Error('Absence ou retard introuvable.');
-      return avecCreneaux([r])[0];
+      return { ...avecCreneaux([r])[0], destinataires: destinatairesDe(r.jeune_id) };
     },
 
     'evenements:alertes': () => ({
@@ -488,4 +589,4 @@ function ouvrir(chemin) {
   };
 }
 
-module.exports = { ouvrir, MIGRATIONS, VERSION: MIGRATIONS.length, TAILLE_MAX_PIECE };
+module.exports = { ouvrir, MIGRATIONS, VERSION: MIGRATIONS.length, TAILLE_MAX_PIECE, HORAIRES_DEFAUT };

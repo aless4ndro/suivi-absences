@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { auth, fichiers } from '../api';
+import { appeler, auth, fichiers, type Horaires } from '../api';
 
 export default function Parametres({ apresRestauration }: { apresRestauration: () => void }) {
   const [dossier, setDossier] = useState('');
@@ -11,9 +11,25 @@ export default function Parametres({ apresRestauration }: { apresRestauration: (
   const [infoMdp, setInfoMdp] = useState('');
   const [erreurMdp, setErreurMdp] = useState('');
 
+  const [horaires, setHoraires] = useState<Horaires | null>(null);
+  const [infoHoraires, setInfoHoraires] = useState('');
+  const [erreurHoraires, setErreurHoraires] = useState('');
+
   useEffect(() => {
     fichiers<{ dossier: string }>('emplacement').then((r) => setDossier(r.dossier));
+    appeler<Horaires>('horaires:get').then(setHoraires);
   }, []);
+
+  async function enregistrerHoraires(e: FormEvent) {
+    e.preventDefault();
+    setInfoHoraires(''); setErreurHoraires('');
+    try {
+      await appeler('horaires:save', horaires);
+      setInfoHoraires('Horaires enregistrés.');
+    } catch (err) {
+      setErreurHoraires((err as Error).message);
+    }
+  }
 
   async function sauvegarder() {
     setMessage(''); setErreur('');
@@ -69,6 +85,27 @@ export default function Parametres({ apresRestauration }: { apresRestauration: (
         {erreur && <p className="erreur">{erreur}</p>}
         {dossier && <p className="discret">Emplacement des données sur ce poste : {dossier}</p>}
       </section>
+
+      {horaires && (
+        <section className="fiche">
+          <h2>Horaires d'une journée de cours</h2>
+          <p className="discret">
+            Servent à remplir automatiquement une « journée complète » dans Absences et retards. La pause déjeuner
+            n'est pas comptée comme du temps d'absence. Vous pouvez toujours ajuster les heures au moment de la saisie.
+          </p>
+          <form onSubmit={enregistrerHoraires}>
+            <div className="grille">
+              <label>Début de journée<input type="time" required value={horaires.debut} onChange={(e) => setHoraires({ ...horaires, debut: e.target.value })} /></label>
+              <label>Début de la pause déjeuner<input type="time" required value={horaires.pause_debut} onChange={(e) => setHoraires({ ...horaires, pause_debut: e.target.value })} /></label>
+              <label>Fin de la pause déjeuner<input type="time" required value={horaires.pause_fin} onChange={(e) => setHoraires({ ...horaires, pause_fin: e.target.value })} /></label>
+              <label>Fin de journée<input type="time" required value={horaires.fin} onChange={(e) => setHoraires({ ...horaires, fin: e.target.value })} /></label>
+            </div>
+            {infoHoraires && <p className="succes">{infoHoraires}</p>}
+            {erreurHoraires && <p className="erreur">{erreurHoraires}</p>}
+            <div className="actions"><button type="submit" className="principal">Enregistrer les horaires</button></div>
+          </form>
+        </section>
+      )}
 
       <section className="fiche">
         <h2>Mot de passe</h2>

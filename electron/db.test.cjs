@@ -226,3 +226,62 @@ test('migration : une base existante garde ses classes et apprentis, et passe à
   db.fermer();
   fs.rmSync(dossier, { recursive: true, force: true });
 });
+
+test('interlocuteurs, destinataires, horaires de journée et pièces sur la liste', () => {
+  const db = ouvrir(':memory:');
+  const cl = db.appeler('classes:list')[0].id;
+  const eid = db.appeler('entreprises:save', { nom: 'Martin SA', email: 'rh@martin.example', telephone: '0102030405' });
+  const jid = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: cl, entreprise_id: eid, maitre_nom: 'M. Martin', maitre_email: 'maitre@martin.example' });
+  const cid = db.appeler('contacts:save', { entreprise_id: eid, nom: 'Mme Petit', fonction: 'Comptabilité', email: 'compta@martin.example' });
+  db.appeler('contacts:save', { entreprise_id: eid, nom: 'Sans mail' });
+  assert.throws(() => db.appeler('contacts:save', { entreprise_id: eid, nom: '' }));
+  assert.throws(() => db.appeler('contacts:save', { entreprise_id: 9999, nom: 'X' }));
+  assert.strictEqual(db.appeler('contacts:list', eid).length, 2);
+  assert.deepStrictEqual(db.appeler('destinataires:list', jid).map((d) => d.email), ['maitre@martin.example', 'rh@martin.example', 'compta@martin.example']);
+  assert.strictEqual(db.appeler('jeunes:list')[0].entreprise_telephone, '0102030405');
+
+  // horaires : défauts puis modification, avec contrôle de cohérence
+  assert.deepStrictEqual(db.appeler('horaires:get'), { debut: '08:30', pause_debut: '12:30', pause_fin: '14:00', fin: '17:30' });
+  assert.throws(() => db.appeler('horaires:save', { debut: '08:00', pause_debut: '14:00', pause_fin: '12:00', fin: '17:00' }));
+  db.appeler('horaires:save', { debut: '08:00', pause_debut: '12:00', pause_fin: '13:30', fin: '17:00' });
+  assert.strictEqual(db.appeler('horaires:get').pause_fin, '13:30');
+
+  // un arrêt de plusieurs jours = un événement, deux créneaux par jour (matin, après-midi)
+  const creneaux = ['2026-11-16', '2026-11-17'].flatMap((date) => [
+    { date, heure_debut: '08:00', heure_fin: '12:00' }, { date, heure_debut: '13:30', heure_fin: '17:00' },
+  ]);
+  const ev = db.appeler('evenements:save', { jeune_id: jid, type: 'absence', creneaux });
+  const pid = db.appeler('pieces:ajouter', { evenement_id: ev, nom: 'arret.pdf', contenu: Buffer.from('x') });
+  const l = db.appeler('evenements:list')[0];
+  assert.strictEqual(l.duree_minutes, 2 * (240 + 210));
+  assert.strictEqual(l.date_fin, '2026-11-17');
+  assert.deepStrictEqual(l.pieces.map((p) => p.id), [pid]);
+  assert.strictEqual(db.appeler('evenements:detail', ev).destinataires.length, 3);
+
+  // supprimer l'entreprise supprime ses interlocuteurs
+  db.appeler('contacts:delete', cid);
+  db.appeler('entreprises:delete', eid);
+  assert.strictEqual(db.appeler('contacts:list', eid).length, 0);
+  db.fermer();
+});
+
+test('migration : copie de sécurité créée avant la mise à niveau, données conservées', () => {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'sa-copie-'));
+  const chemin = path.join(dossier, 'base.db');
+  const ancienne = new DatabaseSync(chemin);
+  for (const m of MIGRATIONS.slice(0, 5)) ancienne.exec(m);
+  ancienne.exec('PRAGMA user_version = 5');
+  ancienne.prepare("INSERT INTO jeunes (nom, prenom, classe_id) VALUES ('Durand', 'Léa', 1)").run();
+  ancienne.close();
+
+  const db = ouvrir(chemin);
+  assert.strictEqual(db.appeler('jeunes:list').length, 1);
+  db.fermer();
+  const copie = `${chemin}.avant-mise-a-jour-v5.bak`;
+  assert.ok(fs.existsSync(copie));
+  const c = new DatabaseSync(copie);
+  assert.strictEqual(c.prepare('SELECT COUNT(*) AS n FROM jeunes').get().n, 1);
+  assert.strictEqual(c.prepare('PRAGMA user_version').get().user_version, 5); // la copie reste dans l'ancien état
+  c.close();
+  fs.rmSync(dossier, { recursive: true, force: true });
+});

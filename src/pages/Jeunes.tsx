@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { appeler, type Classe, type Entreprise, type Jeune } from '../api';
+import { appeler, type Classe, type Contact, type Entreprise, type Jeune } from '../api';
 
 export default function Jeunes() {
   const [classes, setClasses] = useState<Classe[]>([]);
@@ -8,6 +8,13 @@ export default function Jeunes() {
   const [filtre, setFiltre] = useState<number | 'toutes'>('toutes');
   const [fiche, setFiche] = useState<Jeune | null>(null);
   const [erreur, setErreur] = useState('');
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const entrepriseId = fiche?.entreprise_id ?? null;
+  const entrepriseChoisie = entreprises.find((e) => e.id === entrepriseId);
+  useEffect(() => {
+    if (entrepriseId) appeler<Contact[]>('contacts:list', entrepriseId).then(setContacts);
+    else setContacts([]);
+  }, [entrepriseId]);
 
   const charger = () => appeler<Jeune[]>('jeunes:list').then(setListe);
   useEffect(() => {
@@ -91,6 +98,27 @@ export default function Jeunes() {
               </select>
             </label>
           </div>
+          {entrepriseChoisie && (
+            <div className="bloc-entreprise">
+              <h3>Coordonnées de l'entreprise : {entrepriseChoisie.nom}</h3>
+              <p>
+                {entrepriseChoisie.telephone ? <>Tél. {entrepriseChoisie.telephone}</> : <span className="discret">Pas de téléphone</span>}
+                {' · '}
+                {entrepriseChoisie.email ? <>{entrepriseChoisie.email}</> : <span className="discret">Pas d'e-mail</span>}
+              </p>
+              {contacts.length > 0 && (
+                <ul className="pieces">
+                  {contacts.map((c) => (
+                    <li key={c.id}>
+                      <span><strong>{c.nom}</strong>{c.fonction && <> — {c.fonction}</>}</span>
+                      <span className="discret">{[c.email, c.telephone].filter(Boolean).join(' · ') || 'aucune coordonnée'}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="discret">Pour ajouter un autre interlocuteur : section Entreprises, fiche de cette entreprise. Au moment de notifier, vous choisirez à quelle(s) adresse(s) écrire.</p>
+            </div>
+          )}
           <h3>Maître d'apprentissage</h3>
           <div className="grille">
             <label>Nom<input {...champ('maitre_nom')} /></label>

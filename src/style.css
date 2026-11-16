@@ -70,3 +70,9 @@ button.petit + button.petit { margin-left: 4px; }
 .creneau label { width: 170px; }
 .calcule { min-width: 130px; padding-bottom: 8px; color: var(--texte); }
 .total { margin: 12px 0 0; }
+
+.bloc-entreprise { background: #f5f8fc; border: 1px solid var(--bord); border-radius: 6px; padding: 4px 12px; margin: 10px 0; }
+.bloc-entreprise h3 { margin: 8px 0 4px; }
+.piece-lien { display: inline-block; margin: 2px 4px 0 0; padding: 1px 8px; font-size: 12px; border-radius: 10px; background: #eef2f8; border: 1px solid var(--bord); cursor: pointer; }
+.periode { background: #f5f8fc; border: 1px solid var(--bord); border-radius: 6px; padding: 8px 12px; margin: 8px 0 12px; }
+.periode .creneau { margin-bottom: 4px; }
