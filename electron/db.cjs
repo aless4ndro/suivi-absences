@@ -2,6 +2,27 @@
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('node:fs');
 
+const CALENDRIERS = require('./calendriers-2026-2027.cjs');
+
+// Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
+function sqlCalendriers() {
+  const q = (t) => `'${String(t).replace(/'/g, "''")}'`;
+  const TYPES = { c: 'centre', e: 'entreprise', a: 'autre' };
+  const lignes = [];
+  for (const [code, { plages, libelles }] of Object.entries(CALENDRIERS)) {
+    for (const [debut, fin, t] of plages) {
+      for (let d = new Date(`${debut}T00:00:00Z`); d.toISOString().slice(0, 10) <= fin; d.setUTCDate(d.getUTCDate() + 1)) {
+        if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
+        const iso = d.toISOString().slice(0, 10);
+        lignes.push(
+          `INSERT INTO calendrier_jours (classe_id, date, type, libelle) SELECT id, ${q(iso)}, ${q(TYPES[t])}, ${libelles[iso] ? q(libelles[iso]) : 'NULL'} FROM classes WHERE code = ${q(code)};`
+        );
+      }
+    }
+  }
+  return lignes.join('\n');
+}
+
 const MIGRATIONS = [
   // v1 : schéma initial
   `
@@ -139,6 +160,17 @@ const MIGRATIONS = [
     email TEXT
   );
   CREATE INDEX contacts_entreprise ON contacts (entreprise_id);
+  `,
+  // v7 : calendrier d'alternance (centre de formation / entreprise / autre) par classe
+  `
+  CREATE TABLE calendrier_jours (
+    classe_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('centre', 'entreprise', 'autre')),
+    libelle TEXT,
+    PRIMARY KEY (classe_id, date)
+  );
+  ${sqlCalendriers()}
   `,
 ];
 
@@ -312,6 +344,25 @@ function ouvrir(chemin) {
 
     // Adresses possibles pour écrire à propos d'un apprenti : maître d'apprentissage, entreprise, autres interlocuteurs.
     'destinataires:list': (jeuneId) => destinatairesDe(Number(jeuneId)),
+
+    'calendrier:annee': (classeId) =>
+      db.prepare('SELECT date, type, libelle FROM calendrier_jours WHERE classe_id = ? ORDER BY date').all(Number(classeId)),
+
+    // type null = effacer le jour (ni centre, ni entreprise)
+    'calendrier:jour': ({ classe_id, date, type, libelle }) => {
+      if (!dateValide(date)) throw new Error('Date invalide.');
+      if (!db.prepare('SELECT 1 FROM classes WHERE id = ?').get(Number(classe_id))) throw new Error('Classe introuvable.');
+      if (!type) {
+        db.prepare('DELETE FROM calendrier_jours WHERE classe_id = ? AND date = ?').run(Number(classe_id), date);
+        return true;
+      }
+      if (!['centre', 'entreprise', 'autre'].includes(type)) throw new Error('Type de journée invalide.');
+      db.prepare(
+        `INSERT INTO calendrier_jours (classe_id, date, type, libelle) VALUES (?,?,?,?)
+         ON CONFLICT(classe_id, date) DO UPDATE SET type = excluded.type, libelle = excluded.libelle`
+      ).run(Number(classe_id), date, type, vide(libelle));
+      return true;
+    },
 
     'horaires:get': () => {
       const lire = (k, d) => {

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   appeler, courriel, fichiers,
-  type Apercu, type Classe, type Creneau, type Destinataire, type Horaires, type Evenement, type FiltresEvenements, type Jeune, type Motif, type Piece, type PieceChoisie, type ResultatCourriel,
+  type Apercu, type Classe, type Creneau, type Destinataire, type Horaires, type JourCalendrier, type Evenement, type FiltresEvenements, type Jeune, type Motif, type Piece, type PieceChoisie, type ResultatCourriel,
 } from '../api';
 import { ajouterJours, aujourdhui, enMinutes, estWeekEnd, formaterDate, formaterDuree, formaterTaille, jourSemaine } from '../format';
 
@@ -43,6 +43,12 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
   const [erreur, setErreur] = useState('');
   const [info, setInfo] = useState('');
   const [notif, setNotif] = useState<Notif | null>(null);
+  const [calendrier, setCalendrier] = useState<Map<string, JourCalendrier>>(new Map());
+  const classeFiche = apprentis.find((a) => a.id === fiche?.jeune_id)?.classe_id;
+  useEffect(() => {
+    if (classeFiche) appeler<JourCalendrier[]>('calendrier:annee', classeFiche).then((l) => setCalendrier(new Map(l.map((j) => [j.date, j]))));
+    else setCalendrier(new Map());
+  }, [classeFiche]);
   const [horairesDefaut, setHorairesDefaut] = useState<Horaires | null>(null);
   const [periode, setPeriode] = useState<{ du: string; au: string; h: Horaires; pause: boolean; weekend: boolean } | null>(null);
 
@@ -395,6 +401,11 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
                 <label>Date *<input type="date" required value={c.date} onChange={(e) => majCreneau(i, 'date', e.target.value)} /></label>
                 <label>{retard ? 'Début du cours *' : 'De *'}<input type="time" required value={c.heure_debut} onChange={(e) => majCreneau(i, 'heure_debut', e.target.value)} /></label>
                 <label>{retard ? 'Arrivée *' : 'À *'}<input type="time" required value={c.heure_fin} onChange={(e) => majCreneau(i, 'heure_fin', e.target.value)} /></label>
+                {calendrier.get(c.date) && (
+                  <span className={`etiquette cal-${calendrier.get(c.date)!.type}`} title="Selon le calendrier d'alternance de la classe">
+                    {calendrier.get(c.date)!.type === 'centre' ? 'Centre' : calendrier.get(c.date)!.type === 'entreprise' ? 'Entreprise' : (calendrier.get(c.date)!.libelle ?? 'Autre')}
+                  </span>
+                )}
                 <span className="calcule">
                   {d === null ? '—' : d <= 0 ? <span className="erreur">fin avant le début</span> : <>= <strong>{formaterDuree(d)}</strong></>}
                 </span>

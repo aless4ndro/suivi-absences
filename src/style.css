@@ -77,3 +77,24 @@ button.petit + button.petit { margin-left: 4px; }
 .piece-lien { display: inline-block; margin: 2px 4px 0 0; padding: 1px 8px; font-size: 12px; border-radius: 10px; background: #eef2f8; border: 1px solid var(--bord); cursor: pointer; }
 .periode { background: #f5f8fc; border: 1px solid var(--bord); border-radius: 6px; padding: 8px 12px; margin: 8px 0 12px; }
 .periode .creneau { margin-bottom: 4px; }
+
+.legende { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 14px; font-size: 13px; }
+.pastille { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid #0002; }
+.pastille.centre, .jour.centre { background: #ffc000; }
+.pastille.entreprise, .jour.entreprise { background: #87ceeb; }
+.pastille.autre, .jour.autre { background: #d9a7e0; }
+.pastille.ferie { background: #fff; border: 2px solid #c0392b; }
+.pastille.absence { background: #c0392b; border-radius: 50%; }
+.mois-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.mois { background: var(--carte); border: 1px solid var(--bord); border-radius: 8px; padding: 8px 10px; }
+.mois h3 { margin: 0 0 6px; font-size: 14px; text-transform: capitalize; }
+.semaine, .jours { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.entete-jour { font-size: 11px; color: #667; text-align: center; }
+.jour { padding: 4px 0; font-size: 12px; border: 1px solid transparent; border-radius: 4px; background: #f2f4f8; cursor: pointer; position: relative; color: inherit; }
+.jour.ferie { border: 2px solid #c0392b; }
+.jour.aujourdhui { font-weight: 800; text-decoration: underline; }
+.jour.choisi { outline: 2px solid var(--accent-fonce); outline-offset: 1px; }
+.jour.absence::after { content: ''; position: absolute; top: 1px; right: 1px; width: 6px; height: 6px; border-radius: 50%; background: #c0392b; }
+.etiquette.cal-centre { background: #ffc000; color: #4a3500; }
+.etiquette.cal-entreprise { background: #87ceeb; color: #0b3b52; }
+.etiquette.cal-autre { background: #d9a7e0; color: #4a1a52; }

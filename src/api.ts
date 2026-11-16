@@ -93,6 +93,8 @@ export type Contact = { id?: number; entreprise_id: number; nom: string; fonctio
 export type Destinataire = { cle: string; libelle: string; email: string; telephone: string | null };
 export type Horaires = { debut: string; pause_debut: string; pause_fin: string; fin: string };
 
+export type JourCalendrier = { date: string; type: 'centre' | 'entreprise' | 'autre'; libelle: string | null };
+
 export type Piece = { id: number; nom_fichier: string; taille: number };
 export type PieceChoisie = { token: string; nom: string; taille: number };
 export type FiltresEvenements = {

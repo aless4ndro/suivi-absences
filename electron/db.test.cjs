@@ -285,3 +285,23 @@ test('migration : copie de sécurité créée avant la mise à niveau, données 
   c.close();
   fs.rmSync(dossier, { recursive: true, force: true });
 });
+
+test('calendrier : chargé pour les 7 classes, modifiable, conservé à la migration', () => {
+  const db = ouvrir(':memory:');
+  const classes = db.appeler('classes:list');
+  for (const c of classes) assert.ok(db.appeler('calendrier:annee', c.id).length > 200, c.code);
+  const gpme1 = classes.find((c) => c.code === 'GPME 1ère année').id;
+  const cal = Object.fromEntries(db.appeler('calendrier:annee', gpme1).map((j) => [j.date, j]));
+  // lecture du PDF : 1er au 4 septembre en centre, 9 en entreprise, jour d'intégration le 15 octobre (centre)
+  assert.strictEqual(cal['2026-09-01'].type, 'centre');
+  assert.strictEqual(cal['2026-09-09'].type, 'entreprise');
+  assert.strictEqual(cal['2026-10-15'].libelle, "Jour d'intégration");
+  assert.strictEqual(cal['2026-12-10'].libelle, 'BTS blanc');
+  assert.strictEqual(cal['2026-09-05'], undefined); // pas de week-end
+  db.appeler('calendrier:jour', { classe_id: gpme1, date: '2026-09-09', type: 'centre', libelle: 'Rattrapage' });
+  assert.strictEqual(db.appeler('calendrier:annee', gpme1).find((j) => j.date === '2026-09-09').libelle, 'Rattrapage');
+  db.appeler('calendrier:jour', { classe_id: gpme1, date: '2026-09-09', type: null });
+  assert.ok(!db.appeler('calendrier:annee', gpme1).some((j) => j.date === '2026-09-09'));
+  assert.throws(() => db.appeler('calendrier:jour', { classe_id: gpme1, date: 'x', type: 'centre' }));
+  db.fermer();
+});

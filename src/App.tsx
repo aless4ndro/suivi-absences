@@ -7,6 +7,7 @@ import Connexion from './pages/Connexion';
 import Parametres from './pages/Parametres';
 import Motifs from './pages/Motifs';
 import Absences from './pages/Absences';
+import Calendrier from './pages/Calendrier';
 
 const PAGES = [
   { id: 'accueil', titre: 'Accueil' },
@@ -15,7 +16,7 @@ const PAGES = [
   { id: 'entreprises', titre: 'Entreprises' },
   { id: 'motifs', titre: 'Motifs' },
   { id: 'rattrapages', titre: 'Rattrapages', aVenir: true },
-  { id: 'calendrier', titre: 'Calendrier', aVenir: true },
+  { id: 'calendrier', titre: 'Calendrier' },
   { id: 'envois', titre: 'Récapitulatifs', aVenir: true },
   { id: 'parametres', titre: 'Paramètres' },
 ] as const;
@@ -61,6 +62,7 @@ export default function App() {
         {page === 'jeunes' && <Jeunes />}
         {page === 'entreprises' && <Entreprises />}
         {page === 'motifs' && <Motifs />}
+        {page === 'calendrier' && <Calendrier />}
         {page === 'parametres' && <Parametres apresRestauration={rafraichir} />}
         {'aVenir' in courante && (
           <>
