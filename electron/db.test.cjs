@@ -9,7 +9,7 @@ const { ouvrir, MIGRATIONS } = require('./db.cjs');
 test('schéma, classes par défaut, jeunes et entreprises', () => {
   const db = ouvrir(':memory:');
   const classes = db.appeler('classes:list');
-  assert.deepStrictEqual(classes.map((c) => c.code), ['GPME 1ère année', 'GPME 2ème année', 'MCO 1ère année', 'MCO 2ème année', 'NDRC 1ère année', 'NDRC 2ème année', 'LCVM 3ème année']);
+  assert.deepStrictEqual(classes.map((c) => c.code), ['GPME 1ère année', 'GPME 2ème année', 'MCO 1ère année', 'MCO 2ème année', 'NDRC 1ère année', 'NDRC 2ème année', 'LCVM 3ème année', 'DTS IMRT 1ère année', 'DTS IMRT 2ème année', 'DTS IMRT 3ème année']);
   assert.ok(db.appeler('motifs:list').length >= 2);
 
   const eid = db.appeler('entreprises:save', { nom: ' Boulangerie Martin ', email: 'contact@martin.example' });
@@ -202,7 +202,7 @@ test('absences et retards : créneaux, durée calculée, chevauchements, filtres
   db.fermer();
 });
 
-test('migration : une base existante garde ses classes et apprentis, et passe à 7 classes', () => {
+test('migration : une base existante garde ses classes et apprentis, et passe à 10 classes', () => {
   const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'sa-migration-'));
   const chemin = path.join(dossier, 'ancienne.db');
 
@@ -219,6 +219,7 @@ test('migration : une base existante garde ses classes et apprentis, et passe à
   assert.deepStrictEqual(classes.map((c) => c.code), [
     'GPME 1ère année', 'GPME 2ème année', 'MCO 1ère année', 'MCO 2ème année',
     'NDRC 1ère année', 'NDRC 2ème année', 'LCVM 3ème année',
+    'DTS IMRT 1ère année', 'DTS IMRT 2ème année', 'DTS IMRT 3ème année',
   ]);
   const apprenti = db.appeler('jeunes:list')[0];
   assert.strictEqual(apprenti.nom, 'Durand');
@@ -289,7 +290,8 @@ test('migration : copie de sécurité créée avant la mise à niveau, données 
 test('calendrier : chargé pour les 7 classes, modifiable, conservé à la migration', () => {
   const db = ouvrir(':memory:');
   const classes = db.appeler('classes:list');
-  for (const c of classes) assert.ok(db.appeler('calendrier:annee', c.id).length > 200, c.code);
+  for (const c of classes.filter((x) => !x.code.startsWith('DTS'))) assert.ok(db.appeler('calendrier:annee', c.id).length > 200, c.code);
+  assert.strictEqual(db.appeler('calendrier:annee', classes.find((x) => x.code === 'DTS IMRT 1ère année').id).length, 0); // calendrier DTS pas encore fourni
   const gpme1 = classes.find((c) => c.code === 'GPME 1ère année').id;
   const cal = Object.fromEntries(db.appeler('calendrier:annee', gpme1).map((j) => [j.date, j]));
   // lecture du PDF : 1er au 4 septembre en centre, 9 en entreprise, jour d'intégration le 15 octobre (centre)

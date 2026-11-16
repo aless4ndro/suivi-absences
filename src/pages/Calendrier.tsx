@@ -77,6 +77,10 @@ export default function Calendrier() {
         <span><i className="pastille absence" /> Absence ou retard saisi</span>
       </div>
 
+      {jours.size === 0 && (
+        <p className="discret">Le calendrier d'alternance de cette classe n'est pas encore chargé. Vous pouvez le remplir jour par jour en cliquant sur les dates, ou me le transmettre pour l'importer.</p>
+      )}
+
       <div className="mois-grille">
         {MOIS_ANNEE.map(([an, m]) => {
           const premier = new Date(Date.UTC(an, m - 1, 1));

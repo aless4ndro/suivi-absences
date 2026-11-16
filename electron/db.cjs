@@ -172,6 +172,13 @@ const MIGRATIONS = [
   );
   ${sqlCalendriers()}
   `,
+  // v8 : nouvelle formation DTS IMRT (trois années)
+  `
+  INSERT INTO classes (code, libelle, ordre) VALUES
+    ('DTS IMRT 1ère année', 'DTS Imagerie Médicale et Radiologie Thérapeutique — 1ère année', 50),
+    ('DTS IMRT 2ème année', 'DTS Imagerie Médicale et Radiologie Thérapeutique — 2ème année', 51),
+    ('DTS IMRT 3ème année', 'DTS Imagerie Médicale et Radiologie Thérapeutique — 3ème année', 52);
+  `,
 ];
 
 // Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
