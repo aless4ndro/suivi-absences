@@ -32,6 +32,7 @@ function creerFenetre() {
     minWidth: 960,
     minHeight: 600,
     title: 'Suivi Absences',
+    icon: path.join(__dirname, 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

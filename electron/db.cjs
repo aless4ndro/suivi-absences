@@ -143,7 +143,7 @@ const MIGRATIONS = [
 ];
 
 // Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
-const HORAIRES_DEFAUT = { debut: '08:30', pause_debut: '12:30', pause_fin: '14:00', fin: '17:30' };
+const HORAIRES_DEFAUT = { debut: '08:30', pause_debut: '12:30', pause_fin: '14:00', fin: '18:00' };
 
 const TAILLE_MAX_PIECE = 10 * 1024 * 1024;
 

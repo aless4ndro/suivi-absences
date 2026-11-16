@@ -241,7 +241,7 @@ test('interlocuteurs, destinataires, horaires de journée et pièces sur la list
   assert.strictEqual(db.appeler('jeunes:list')[0].entreprise_telephone, '0102030405');
 
   // horaires : défauts puis modification, avec contrôle de cohérence
-  assert.deepStrictEqual(db.appeler('horaires:get'), { debut: '08:30', pause_debut: '12:30', pause_fin: '14:00', fin: '17:30' });
+  assert.deepStrictEqual(db.appeler('horaires:get'), { debut: '08:30', pause_debut: '12:30', pause_fin: '14:00', fin: '18:00' });
   assert.throws(() => db.appeler('horaires:save', { debut: '08:00', pause_debut: '14:00', pause_fin: '12:00', fin: '17:00' }));
   db.appeler('horaires:save', { debut: '08:00', pause_debut: '12:00', pause_fin: '13:30', fin: '17:00' });
   assert.strictEqual(db.appeler('horaires:get').pause_fin, '13:30');

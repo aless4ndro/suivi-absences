@@ -29,7 +29,7 @@
     "productName": "Suivi Absences",
     "directories": { "output": "release" },
     "files": ["dist/**", "electron/**", "!electron/**/*.test.cjs", "package.json"],
-    "win": { "target": [{ "target": "portable", "arch": ["x64"] }] },
+    "win": { "icon": "build/icon.ico", "target": [{ "target": "portable", "arch": ["x64"] }] },
     "portable": { "artifactName": "SuiviAbsences.exe" }
   }
 }

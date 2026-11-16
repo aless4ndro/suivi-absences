@@ -7,7 +7,8 @@
 body { margin: 0; background: var(--fond); }
 .appli { display: flex; height: 100vh; }
 .menu { width: 220px; flex-shrink: 0; background: #17253b; padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; }
-.marque { color: #fff; font-weight: 700; font-size: 18px; padding: 4px 10px 18px; }
+.marque { color: #fff; font-weight: 700; font-size: 18px; padding: 4px 10px 18px; display: flex; align-items: center; gap: 10px; }
+.marque img { width: 32px; height: 32px; }
 .menu button { display: flex; justify-content: space-between; align-items: center; background: none; border: 0; color: #c9d3e2; text-align: left; padding: 10px; border-radius: 6px; font: inherit; cursor: pointer; }
 .menu button:hover { background: #22344f; }
 .menu button.actif { background: var(--accent); color: #fff; }

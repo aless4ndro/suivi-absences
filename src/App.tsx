@@ -45,7 +45,7 @@ export default function App() {
   return (
     <div className="appli">
       <nav className="menu">
-        <div className="marque">Suivi Absences</div>
+        <div className="marque"><img src="./logo.png" alt="" />Suivi Absences</div>
         {PAGES.map((p) => (
           <button key={p.id} className={p.id === page ? 'actif' : ''} onClick={() => allerA(p.id)}>
             {p.titre}
