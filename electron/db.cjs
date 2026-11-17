@@ -3,6 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('node:fs');
 
 const CALENDRIERS = require('./calendriers-2026-2027.cjs');
+const { creerRattrapages } = require('./rattrapages.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -178,6 +179,51 @@ const MIGRATIONS = [
     ('DTS IMRT 1ère année', 'DTS Imagerie Médicale et Radiologie Thérapeutique — 1ère année', 50),
     ('DTS IMRT 2ème année', 'DTS Imagerie Médicale et Radiologie Thérapeutique — 2ème année', 51),
     ('DTS IMRT 3ème année', 'DTS Imagerie Médicale et Radiologie Thérapeutique — 3ème année', 52);
+  `,
+  // v9 : rattrapages d'heures (séances, justificatifs signés, historique) + adresse de l'apprenti pour les convocations.
+  // Les anciennes tables rattrapages / rattrapage_creneaux n'ont jamais été utilisées : elles sont remplacées.
+  `
+  ALTER TABLE jeunes ADD COLUMN civilite TEXT;
+  ALTER TABLE jeunes ADD COLUMN adresse TEXT;
+  ALTER TABLE jeunes ADD COLUMN code_postal TEXT;
+  ALTER TABLE jeunes ADD COLUMN ville TEXT;
+  DROP TABLE rattrapage_creneaux;
+  DROP TABLE rattrapages;
+  CREATE TABLE rattrapage_seances (
+    id INTEGER PRIMARY KEY,
+    jeune_id INTEGER NOT NULL REFERENCES jeunes(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    heure_debut TEXT NOT NULL,
+    heure_fin TEXT NOT NULL,
+    duree_minutes INTEGER NOT NULL,
+    salle TEXT,
+    periode_debut TEXT,
+    periode_fin TEXT,
+    statut TEXT NOT NULL DEFAULT 'programmee' CHECK (statut IN ('programmee', 'effectuee', 'non_effectuee')),
+    duree_validee_minutes INTEGER,
+    valide_le TEXT,
+    convocation_le TEXT,
+    observations TEXT
+  );
+  CREATE INDEX seances_jeune ON rattrapage_seances (jeune_id, date);
+  CREATE TABLE rattrapage_pieces (
+    id INTEGER PRIMARY KEY,
+    seance_id INTEGER NOT NULL REFERENCES rattrapage_seances(id) ON DELETE CASCADE,
+    nom_fichier TEXT NOT NULL,
+    taille INTEGER NOT NULL,
+    contenu BLOB NOT NULL,
+    ajoute_le TEXT
+  );
+  CREATE INDEX rattrapage_pieces_seance ON rattrapage_pieces (seance_id);
+  CREATE TABLE rattrapage_historique (
+    id INTEGER PRIMARY KEY,
+    jeune_id INTEGER NOT NULL REFERENCES jeunes(id) ON DELETE CASCADE,
+    seance_id INTEGER,
+    quand TEXT NOT NULL,
+    action TEXT NOT NULL,
+    detail TEXT
+  );
+  CREATE INDEX rattrapage_historique_jeune ON rattrapage_historique (jeune_id, id);
   `,
 ];
 
@@ -417,18 +463,20 @@ function ouvrir(chemin) {
         nom, prenom, vide(j.email), vide(j.telephone), Number(j.classe_id),
         j.entreprise_id ? Number(j.entreprise_id) : null,
         vide(j.maitre_nom), vide(j.maitre_telephone), vide(j.maitre_email),
+        ['Monsieur', 'Madame'].includes(j.civilite) ? j.civilite : null,
+        vide(j.adresse), vide(j.code_postal), vide(j.ville),
       ];
       if (j.id) {
         db.prepare(
           `UPDATE jeunes SET nom=?, prenom=?, email=?, telephone=?, classe_id=?, entreprise_id=?,
-           maitre_nom=?, maitre_telephone=?, maitre_email=? WHERE id=?`
+           maitre_nom=?, maitre_telephone=?, maitre_email=?, civilite=?, adresse=?, code_postal=?, ville=? WHERE id=?`
         ).run(...p, j.id);
         return j.id;
       }
       return Number(
         db.prepare(
           `INSERT INTO jeunes (nom, prenom, email, telephone, classe_id, entreprise_id,
-           maitre_nom, maitre_telephone, maitre_email) VALUES (?,?,?,?,?,?,?,?,?)`
+           maitre_nom, maitre_telephone, maitre_email, civilite, adresse, code_postal, ville) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
         ).run(...p).lastInsertRowid
       );
     },
@@ -621,6 +669,8 @@ function ouvrir(chemin) {
       nb_entreprises: db.prepare('SELECT COUNT(*) AS n FROM entreprises').get().n,
     }),
   };
+
+  Object.assign(actions, creerRattrapages(db, { vide, dateValide, heureValide, enMinutes, cle, tailleMax: TAILLE_MAX_PIECE }));
 
   return {
     appeler(action, arg) {

@@ -6,6 +6,7 @@ export type Entreprise = {
 export type Jeune = {
   id?: number; nom: string; prenom: string; email: string | null; telephone: string | null;
   classe_id: number; entreprise_id: number | null;
+  civilite?: string | null; adresse?: string | null; code_postal?: string | null; ville?: string | null;
   maitre_nom: string | null; maitre_telephone: string | null; maitre_email: string | null;
   classe_code?: string; entreprise_nom?: string | null;
   entreprise_telephone?: string | null; entreprise_email?: string | null;
@@ -24,6 +25,7 @@ declare global {
       auth: (action: string, arg?: unknown) => Promise<any>;
       fichiers: (action: string, arg?: unknown) => Promise<any>;
       courriel: (action: string, arg?: unknown) => Promise<any>;
+      documents: (action: string, arg?: unknown) => Promise<any>;
     };
   }
 }
@@ -116,3 +118,48 @@ export async function courriel<T = any>(action: string, arg?: unknown): Promise<
     throw nettoyer(e);
   }
 }
+
+export async function documents<T = any>(action: string, arg?: unknown): Promise<T> {
+  try {
+    return await window.api.documents(action, arg);
+  } catch (e) {
+    throw nettoyer(e);
+  }
+}
+
+export type Seance = {
+  id: number; jeune_id: number; date: string; heure_debut: string; heure_fin: string; duree_minutes: number;
+  salle: string | null; periode_debut: string | null; periode_fin: string | null;
+  statut: 'programmee' | 'effectuee' | 'non_effectuee'; duree_validee_minutes: number | null;
+  valide_le: string | null; convocation_le: string | null; observations: string | null;
+  pieces: { id: number; nom_fichier: string; taille: number }[];
+};
+
+export type StatutRattrapage = 'a_programmer' | 'programme' | 'partiel' | 'termine' | 'non_effectue';
+
+export type ApprentiBilan = {
+  id: number; nom: string; prenom: string; classe_id: number; classe_code: string;
+  nb_absences: number; nb_retards: number; min_absences: number; min_retards: number;
+  dues: number; programmees: number; validees: number; solde: number; reste_a_programmer: number;
+  nb_seances: number; nb_non_effectuees: number; statut: StatutRattrapage | 'aucun';
+};
+
+export type Bilan = {
+  totaux: {
+    nb_apprentis: number; nb_absences: number; nb_retards: number; dues: number; programmees: number;
+    validees: number; solde: number; sans_rattrapage: number; regularises: number;
+  };
+  apprentis: ApprentiBilan[];
+};
+
+export type Etablissement = {
+  nom: string; ville: string; signataire: string; fonction: string; referent: string; absents: string; salle: string;
+  service: string; coordonnees: string; pied_titre: string; pied_lignes: string; pied_site: string;
+};
+
+export type Journal = { id: number; jeune_id: number; seance_id: number | null; quand: string; action: string; detail: string | null };
+
+export type DonneesDocument = {
+  jeune: { id: number; nom: string; prenom: string; civilite: string | null; adresse: string | null; code_postal: string | null; ville: string | null; classe_code: string };
+  seances: Seance[]; periode_debut: string | null; periode_fin: string | null; dues: number; solde_avant: number; etablissement: Etablissement;
+};

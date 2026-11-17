@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { appeler, auth, fichiers, type Horaires } from '../api';
+import { appeler, auth, fichiers, type Etablissement, type Horaires } from '../api';
 
 export default function Parametres({ apresRestauration }: { apresRestauration: () => void }) {
   const [dossier, setDossier] = useState('');
@@ -11,6 +11,8 @@ export default function Parametres({ apresRestauration }: { apresRestauration: (
   const [infoMdp, setInfoMdp] = useState('');
   const [erreurMdp, setErreurMdp] = useState('');
 
+  const [etab, setEtab] = useState<Etablissement | null>(null);
+  const [infoEtab, setInfoEtab] = useState('');
   const [horaires, setHoraires] = useState<Horaires | null>(null);
   const [infoHoraires, setInfoHoraires] = useState('');
   const [erreurHoraires, setErreurHoraires] = useState('');
@@ -18,7 +20,14 @@ export default function Parametres({ apresRestauration }: { apresRestauration: (
   useEffect(() => {
     fichiers<{ dossier: string }>('emplacement').then((r) => setDossier(r.dossier));
     appeler<Horaires>('horaires:get').then(setHoraires);
+    appeler<Etablissement>('etablissement:get').then(setEtab);
   }, []);
+
+  async function enregistrerEtab(e: FormEvent) {
+    e.preventDefault();
+    await appeler('etablissement:save', etab);
+    setInfoEtab('Informations de l\'établissement enregistrées.');
+  }
 
   async function enregistrerHoraires(e: FormEvent) {
     e.preventDefault();
@@ -85,6 +94,30 @@ export default function Parametres({ apresRestauration }: { apresRestauration: (
         {erreur && <p className="erreur">{erreur}</p>}
         {dossier && <p className="discret">Emplacement des données sur ce poste : {dossier}</p>}
       </section>
+
+      {etab && (
+        <section className="fiche">
+          <h2>Établissement (convocations, émargements, mails aux entreprises)</h2>
+          <p className="discret">Ces informations apparaissent sur les documents. Le logo et la mise en page reprennent vos modèles.</p>
+          <form onSubmit={enregistrerEtab}>
+            <div className="grille">
+              {([
+                ['nom', "Nom de l'établissement"], ['ville', 'Ville (en-tête de la date)'], ['signataire', 'Signataire'], ['fonction', 'Fonction du signataire'],
+                ['referent', 'Bureau où se présenter'], ['absents', "En cas d'absence de… (convocation)"], ['salle', 'Salle par défaut'],
+                ['service', 'Service (signature des mails)'], ['coordonnees', 'Coordonnées (signature des mails)'],
+                ['pied_titre', 'Pied de page : titre'], ['pied_site', 'Pied de page : site web'],
+              ] as [keyof Etablissement, string][]).map(([k, label]) => (
+                <label key={k}>{label}<input value={etab[k]} onChange={(e) => setEtab({ ...etab, [k]: e.target.value })} /></label>
+              ))}
+            </div>
+            <label>Pied de page : lignes
+              <textarea rows={4} value={etab.pied_lignes} onChange={(e) => setEtab({ ...etab, pied_lignes: e.target.value })} />
+            </label>
+            {infoEtab && <p className="succes">{infoEtab}</p>}
+            <div className="actions"><button type="submit" className="principal">Enregistrer</button></div>
+          </form>
+        </section>
+      )}
 
       {horaires && (
         <section className="fiche">

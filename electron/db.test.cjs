@@ -307,3 +307,71 @@ test('calendrier : chargé pour les 7 classes, modifiable, conservé à la migra
   assert.throws(() => db.appeler('calendrier:jour', { classe_id: gpme1, date: 'x', type: 'centre' }));
   db.fermer();
 });
+
+test('rattrapages : seule une séance validée diminue le solde', () => {
+  const db = ouvrir(':memory:');
+  const cl = db.appeler('classes:list')[0].id;
+  const motifs = db.appeler('motifs:list');
+  const irrec = motifs.find((m) => m.statut === 'irrecevable').id;
+  const recev = motifs.find((m) => m.statut === 'recevable').id;
+  const j = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: cl, adresse: '2 rue X', code_postal: '27000', ville: 'Évreux', civilite: 'Madame' });
+  // 14 h irrecevables (absence 12 h + retard 2 h) en octobre, + 3 h recevables qui ne comptent pas
+  db.appeler('evenements:save', { jeune_id: j, type: 'absence', motif_id: irrec, creneaux: [{ date: '2026-10-05', heure_debut: '08:00', heure_fin: '20:00' }] });
+  db.appeler('evenements:save', { jeune_id: j, type: 'retard', motif_id: irrec, creneaux: [{ date: '2026-10-06', heure_debut: '08:00', heure_fin: '10:00' }] });
+  db.appeler('evenements:save', { jeune_id: j, type: 'absence', motif_id: recev, creneaux: [{ date: '2026-10-07', heure_debut: '08:00', heure_fin: '11:00' }] });
+  // hors période : ne doit pas compter dans octobre
+  db.appeler('evenements:save', { jeune_id: j, type: 'absence', motif_id: irrec, creneaux: [{ date: '2026-11-03', heure_debut: '08:00', heure_fin: '10:00' }] });
+
+  const oct = { debut: '2026-10-01', fin: '2026-10-31' };
+  let b = db.appeler('rattrapages:bilan', oct);
+  assert.strictEqual(b.apprentis.length, 1);
+  assert.strictEqual(b.apprentis[0].dues, 14 * 60);
+  assert.strictEqual(b.apprentis[0].statut, 'a_programmer');
+  assert.strictEqual(b.totaux.nb_absences, 1);
+  assert.strictEqual(b.totaux.nb_retards, 1);
+
+  // deux séances programmées (4 h + 6 h) : le solde ne bouge pas
+  const s1 = db.appeler('rattrapages:seance:save', { jeune_id: j, date: '2026-11-18', heure_debut: '14:00', heure_fin: '18:00', periode_debut: oct.debut, periode_fin: oct.fin });
+  const s2 = db.appeler('rattrapages:seance:save', { jeune_id: j, date: '2026-11-25', heure_debut: '08:00', heure_fin: '14:00', periode_debut: oct.debut, periode_fin: oct.fin });
+  assert.throws(() => db.appeler('rattrapages:seance:save', { jeune_id: j, date: '2026-11-18', heure_debut: '17:00', heure_fin: '19:00' }), /Chevauchement/);
+  assert.throws(() => db.appeler('rattrapages:seance:save', { jeune_id: j, date: '2026-11-19', heure_debut: '10:00', heure_fin: '09:00' }));
+  b = db.appeler('rattrapages:bilan', oct).apprentis[0];
+  assert.deepStrictEqual([b.programmees, b.validees, b.solde, b.statut, b.reste_a_programmer], [600, 0, 840, 'programme', 240]);
+
+  // validation sans justificatif refusée, puis acceptée avec confirmation
+  assert.throws(() => db.appeler('rattrapages:valider', { id: s1, statut: 'effectuee' }), /émargement/);
+  db.appeler('rattrapages:valider', { id: s1, statut: 'effectuee', sans_justificatif: true });
+  // seconde séance : justificatif signé, mais l'apprenti est parti plus tôt → 5 h validées seulement
+  db.appeler('rattrapages:piece:ajouter', { seance_id: s2, nom: 'emargement.pdf', contenu: Buffer.from('pdf') });
+  assert.throws(() => db.appeler('rattrapages:piece:ajouter', { seance_id: s2, nom: 'virus.exe', contenu: Buffer.from('x') }), /PDF, JPG et PNG/);
+  assert.throws(() => db.appeler('rattrapages:valider', { id: s2, statut: 'effectuee', duree_validee_minutes: 7 * 60 }), /comprises/);
+  db.appeler('rattrapages:valider', { id: s2, statut: 'effectuee', duree_validee_minutes: 5 * 60 });
+  b = db.appeler('rattrapages:bilan', oct).apprentis[0];
+  assert.deepStrictEqual([b.programmees, b.validees, b.solde, b.statut], [0, 9 * 60, 5 * 60, 'partiel']);
+
+  // séance validée : ni modifiable ni supprimable ; l'annulation remet le solde
+  assert.throws(() => db.appeler('rattrapages:seance:delete', s1));
+  db.appeler('rattrapages:annuler-validation', s1);
+  assert.strictEqual(db.appeler('rattrapages:bilan', oct).apprentis[0].solde, 9 * 60);
+  db.appeler('rattrapages:valider', { id: s1, statut: 'non_effectuee' });
+  b = db.appeler('rattrapages:bilan', oct).apprentis[0];
+  assert.deepStrictEqual([b.validees, b.solde, b.nb_non_effectuees], [5 * 60, 9 * 60, 1]);
+
+  // la période de novembre ne voit pas les séances d'octobre et ne mélange pas les compteurs
+  assert.strictEqual(db.appeler('rattrapages:bilan', { debut: '2026-11-01', fin: '2026-11-30' }).apprentis[0].dues, 120);
+
+  // document : solde avant séance et données de l'apprenti
+  const doc = db.appeler('rattrapages:document', { ids: [s2] });
+  assert.strictEqual(doc.dues, 14 * 60);
+  assert.strictEqual(doc.jeune.ville, 'Évreux');
+  assert.strictEqual(doc.etablissement.ville, 'Évreux');
+  // récapitulatif employeur du mois
+  const r = db.appeler('recap:donnees', { jeune_id: j, debut: '2026-10-01', fin: '2026-10-31' });
+  assert.strictEqual(r.evenements.length, 2); // absence et retard irrecevables d'octobre
+  assert.strictEqual(r.min_rattrapees, 5 * 60);
+  assert.strictEqual(r.pieces.length, 1);
+  // l'historique a tout gardé
+  const h = db.appeler('rattrapages:historique', j).map((x) => x.action);
+  for (const a of ['seance_programmee', 'seance_validee', 'validation_annulee', 'seance_non_effectuee', 'emargement_importe']) assert.ok(h.includes(a), a);
+  db.fermer();
+});

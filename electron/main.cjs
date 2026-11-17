@@ -49,6 +49,19 @@ function creerFenetre() {
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 }
 
+// Imprime du HTML en PDF (A4) dans une fenêtre cachée, sans JavaScript. Le logo est incorporé au document.
+async function htmlVersPdf(html) {
+  const logo = `data:image/png;base64,${fs.readFileSync(path.join(__dirname, 'logo-etablissement.png')).toString('base64')}`;
+  const complet = String(html).replaceAll('src="logo-etablissement.png"', `src="${logo}"`);
+  const fenetre = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true } });
+  try {
+    await fenetre.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(complet)}`);
+    return await fenetre.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'none' } });
+  } finally {
+    fenetre.destroy();
+  }
+}
+
 function exigerOuvert() {
   if (!session.estOuvert()) throw new Error('Application verrouillée.');
 }
@@ -102,6 +115,59 @@ function brancherIpc() {
     throw new Error(`Action inconnue : ${action}`);
   });
 
+  // Documents : convocation, feuille d'émargement et bilan sont fabriqués en HTML puis imprimés en PDF.
+  ipcMain.handle('documents', async (event, action, arg = {}) => {
+    exigerOuvert();
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const nomPdf = nomSur(String(arg.nom || 'document')).replace(/\.pdf$/i, '') + '.pdf';
+
+    if (action === 'pdf') {
+      const pdf = await htmlVersPdf(arg.html);
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        title: 'Enregistrer le document en PDF',
+        defaultPath: path.join(app.getPath('documents'), nomPdf),
+        filters: [{ name: 'Document PDF', extensions: ['pdf'] }],
+      });
+      if (canceled || !filePath) return { annule: true };
+      fs.writeFileSync(filePath, pdf);
+      return { chemin: filePath };
+    }
+
+    if (action === 'courriel') {
+      // Convocation ou bilan : un PDF éventuel + justificatifs choisis, dans un brouillon Outlook (jamais envoyé automatiquement).
+      fs.mkdirSync(dossierTemp(), { recursive: true });
+      const dossier = fs.mkdtempSync(path.join(dossierTemp(), 'courriel-'));
+      const fichiers = [];
+      if (arg.html) {
+        const chemin = path.join(dossier, nomPdf);
+        fs.writeFileSync(chemin, await htmlVersPdf(arg.html));
+        fichiers.push(chemin);
+      }
+      for (const id of arg.piece_seance_ids ?? []) {
+        const { nom_fichier, contenu } = db.appeler('rattrapages:piece:contenu', id);
+        const chemin = path.join(dossier, `Emargement-${id}-${nomSur(nom_fichier)}`);
+        fs.writeFileSync(chemin, contenu);
+        fichiers.push(chemin);
+      }
+      for (const id of arg.piece_evenement_ids ?? []) {
+        const { nom_fichier, contenu } = db.appeler('pieces:contenu', id);
+        const chemin = path.join(dossier, `Justificatif-${id}-${nomSur(nom_fichier)}`);
+        fs.writeFileSync(chemin, contenu);
+        fichiers.push(chemin);
+      }
+      return preparerBrouillon(
+        { a: String(arg.a || ''), objet: String(arg.objet || ''), corps: String(arg.corps || ''), fichiers },
+        {
+          executer: execFileP,
+          ouvrirExterne: (url) => shell.openExternal(url),
+          ouvrirDossier: (d) => shell.openPath(d),
+          dossierTravail: dossier,
+        }
+      );
+    }
+    throw new Error(`Action inconnue : ${action}`);
+  });
+
   ipcMain.handle('fichiers', async (event, action, arg = {}) => {
     exigerOuvert();
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -110,8 +176,9 @@ function brancherIpc() {
 
     if (action === 'choisirPieces') {
       const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-        title: 'Choisir une ou plusieurs pièces jointes',
+        title: arg.scans ? "Choisir la feuille d'émargement signée (PDF, JPG ou PNG)" : 'Choisir une ou plusieurs pièces jointes',
         properties: ['openFile', 'multiSelections'],
+        filters: arg.scans ? [{ name: 'PDF et images', extensions: ['pdf', 'jpg', 'jpeg', 'png'] }] : undefined,
       });
       if (canceled) return { pieces: [], refusees: [] };
       const pieces = [];
@@ -141,7 +208,8 @@ function brancherIpc() {
         selections.delete(token);
         try {
           const contenu = fs.readFileSync(chemin);
-          db.appeler('pieces:ajouter', { evenement_id: arg.evenement_id, nom: path.basename(chemin), contenu });
+          if (arg.seance_id) db.appeler('rattrapages:piece:ajouter', { seance_id: arg.seance_id, nom: path.basename(chemin), contenu });
+          else db.appeler('pieces:ajouter', { evenement_id: arg.evenement_id, nom: path.basename(chemin), contenu });
           ajoutees++;
         } catch (e) {
           erreurs.push(`${path.basename(chemin)} : ${e.message}`);
@@ -151,11 +219,11 @@ function brancherIpc() {
     }
 
     if (action === 'ouvrirPiece') {
-      const { nom_fichier, contenu } = db.appeler('pieces:contenu', arg.id);
+      const { nom_fichier, contenu } = db.appeler(arg.rattrapage ? 'rattrapages:piece:contenu' : 'pieces:contenu', arg.id);
       const dossier = dossierTemp();
       fs.mkdirSync(dossier, { recursive: true });
       const sur = nomSur(nom_fichier);
-      const fichier = path.join(dossier, `${arg.id}-${sur}`);
+      const fichier = path.join(dossier, `${arg.rattrapage ? 'r' : ''}${arg.id}-${sur}`);
       fs.writeFileSync(fichier, contenu);
       const erreur = await shell.openPath(fichier);
       if (erreur) throw new Error(`Impossible d'ouvrir le fichier : ${erreur}`);

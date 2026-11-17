@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const { DatabaseSync } = require('node:sqlite');
 const { VERSION } = require('./db.cjs');
 
-const TABLES_REQUISES = ['classes', 'jeunes', 'entreprises', 'evenements', 'rattrapages', 'reglages'];
+const TABLES_REQUISES = ['classes', 'jeunes', 'entreprises', 'evenements', 'reglages'];
 
 // Lève une erreur claire si le fichier n'est pas une sauvegarde utilisable.
 function verifierSauvegarde(chemin) {

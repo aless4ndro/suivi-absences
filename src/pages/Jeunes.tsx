@@ -31,6 +31,7 @@ export default function Jeunes() {
       nom: '', prenom: '', email: '', telephone: '',
       classe_id: filtre === 'toutes' ? classes[0]?.id ?? 0 : filtre,
       entreprise_id: null, maitre_nom: '', maitre_telephone: '', maitre_email: '',
+      civilite: '', adresse: '', code_postal: '', ville: '',
     });
   }
 
@@ -83,6 +84,16 @@ export default function Jeunes() {
             <label>Prénom *<input required {...champ('prenom')} /></label>
             <label>E-mail<input type="email" {...champ('email')} /></label>
             <label>Téléphone<input type="tel" {...champ('telephone')} /></label>
+            <label>Civilité (pour les convocations)
+              <select value={fiche.civilite ?? ''} onChange={(e) => setFiche({ ...fiche, civilite: e.target.value })}>
+                <option value="">Non précisée</option>
+                <option value="Monsieur">Monsieur</option>
+                <option value="Madame">Madame</option>
+              </select>
+            </label>
+            <label>Adresse<input {...champ('adresse')} placeholder="N° et rue" /></label>
+            <label>Code postal<input {...champ('code_postal')} /></label>
+            <label>Ville<input {...champ('ville')} /></label>
             <label>Classe *
               <select value={fiche.classe_id} onChange={(e) => setFiche({ ...fiche, classe_id: Number(e.target.value) })}>
                 {classes.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
