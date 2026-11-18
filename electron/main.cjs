@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const { ouvrir, TAILLE_MAX_PIECE } = require('./db.cjs');
 const { creerSession } = require('./auth.cjs');
 const { verifierSauvegarde, remplacer } = require('./sauvegarde.cjs');
-const { composer, preparerBrouillon, nomSur } = require('./courriel.cjs');
+const { composer, repartir, preparerBrouillon, nomSur } = require('./courriel.cjs');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const execFileP = promisify(execFile);
@@ -86,7 +86,7 @@ function brancherIpc() {
   ipcMain.handle('courriel', async (_e, action, arg = {}) => {
     exigerOuvert();
     const detail = db.appeler('evenements:detail', arg.id);
-    const message = composer(detail, arg.destinataires);
+    const message = composer(detail, arg.envoi ?? arg.destinataires);
 
     if (action === 'apercu') return message;
 
@@ -156,7 +156,7 @@ function brancherIpc() {
         fichiers.push(chemin);
       }
       return preparerBrouillon(
-        { a: String(arg.a || ''), objet: String(arg.objet || ''), corps: String(arg.corps || ''), fichiers },
+        { ...repartir({ a: arg.a ?? '', cc: arg.cc ?? '', cci: arg.cci ?? '' }), objet: String(arg.objet || ''), corps: String(arg.corps || ''), fichiers },
         {
           executer: execFileP,
           ouvrirExterne: (url) => shell.openExternal(url),

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { appeler, documents, type ApprentiBilan, type Bilan, type Classe, type Destinataire, type ResultatCourriel } from '../api';
 import { aujourdhui, formaterTaille } from '../format';
 import { corpsRecap, sujetRecap, type DonneesRecap } from '../recap';
+import ChoixDestinataires, { adressesInvalides, envoiParDefaut, ppInclus, repartition, toutesAdresses, type Envoi } from '../ChoixDestinataires';
 
 const p2 = (n: number) => String(n).padStart(2, '0');
 const dernierJour = (ym: string) => {
@@ -15,7 +16,7 @@ const moisPrecedent = () => {
 const hm = (min: number) => `${Math.floor(min / 60)} h ${p2(min % 60)}`;
 
 type Prepa = {
-  a: ApprentiBilan; donnees: DonneesRecap; destinataires: Destinataire[]; adresses: string[];
+  a: ApprentiBilan; donnees: DonneesRecap; destinataires: Destinataire[]; envoi: Envoi;
   objet: string; corps: string; piecesSeance: number[]; piecesEvenement: number[];
 };
 
@@ -45,12 +46,11 @@ export default function Recapitulatifs() {
   async function charger(a: ApprentiBilan): Promise<Prepa> {
     const [donnees, destinataires] = await Promise.all([
       appeler<DonneesRecap>('recap:donnees', { jeune_id: a.id, debut, fin }),
-      appeler<Destinataire[]>('destinataires:list', a.id),
+      appeler<Destinataire[]>('destinataires:list', { jeune_id: a.id, date: fin }),
     ]);
-    const defaut = destinataires.find((d) => d.cle === 'maitre') ?? destinataires.find((d) => d.cle === 'entreprise');
     const piecesSeance = donnees.pieces.map((p) => p.id);
     return {
-      a, donnees, destinataires, adresses: defaut ? [defaut.email] : [],
+      a, donnees, destinataires, envoi: envoiParDefaut(destinataires),
       objet: sujetRecap(a.nom, a.prenom, mois), corps: corpsRecap(donnees, mois, piecesSeance.length > 0),
       piecesSeance, piecesEvenement: [],
     };
@@ -61,12 +61,14 @@ export default function Recapitulatifs() {
   }
 
   async function brouillon(p: Prepa): Promise<ResultatCourriel> {
+    const invalides = adressesInvalides(p.envoi);
+    if (invalides.length) throw new Error(`Adresse(s) invalide(s) : ${invalides.join(', ')}`);
     const r = await documents<ResultatCourriel>('courriel', {
-      a: p.adresses.join('; '), objet: p.objet, corps: p.corps,
+      ...repartition(p.envoi), objet: p.objet, corps: p.corps,
       piece_seance_ids: p.piecesSeance, piece_evenement_ids: p.piecesEvenement,
     });
     await appeler('recap:envoye', {
-      jeune_id: p.a.id, debut, fin, destinataires: p.adresses,
+      jeune_id: p.a.id, debut, fin, destinataires: toutesAdresses(p.envoi),
       pieces: [...p.donnees.pieces.filter((x) => p.piecesSeance.includes(x.id)).map((x) => x.nom_fichier),
         ...p.donnees.pieces_evenements.filter((x) => p.piecesEvenement.includes(x.id)).map((x) => x.nom_fichier)],
     });
@@ -92,7 +94,7 @@ export default function Recapitulatifs() {
     for (const a of liste) {
       try {
         const p = await charger(a);
-        if (p.adresses.length === 0) { manquants.push(`${a.nom} ${a.prenom} (aucune adresse e-mail)`); continue; }
+        if (repartition(p.envoi).a.length === 0) { manquants.push(`${a.nom} ${a.prenom} (aucune adresse e-mail)`); continue; }
         const r = await brouillon(p);
         setFaits((f) => ({ ...f, [a.id]: r.methode === 'outlook' ? 'Brouillon Outlook ouvert' : 'Message ouvert (pièces à glisser)' }));
         ok++;
@@ -150,16 +152,9 @@ export default function Recapitulatifs() {
         <div className="voile">
           <div className="fenetre">
             <div className="entete"><h2>Mail à l'employeur — {prepa.a.nom.toUpperCase()} {prepa.a.prenom}</h2><button onClick={() => setPrepa(null)}>Fermer</button></div>
-            <h3>Destinataire(s)</h3>
-            {prepa.destinataires.length === 0 ? <p className="erreur">Aucune adresse connue : complétez la fiche de l'apprenti et de l'entreprise, ou saisissez l'adresse dans Outlook.</p> : (
-              <ul className="pieces">
-                {prepa.destinataires.map((d) => (
-                  <li key={d.cle}><label className="case">
-                    <input type="checkbox" checked={prepa.adresses.includes(d.email)} onChange={(e) => maj({ adresses: e.target.checked ? [...prepa.adresses, d.email] : prepa.adresses.filter((x) => x !== d.email) })} />
-                    {d.libelle} <span className="discret">{d.email}</span>
-                  </label></li>
-                ))}
-              </ul>
+            <ChoixDestinataires destinataires={prepa.destinataires} envoi={prepa.envoi} onChange={(envoi) => maj({ envoi })} />
+            {ppInclus(prepa.envoi, prepa.destinataires) && (
+              <p className="alerte-texte">⚠ Le professeur principal recevra ce récapitulatif et les pièces jointes cochées : ne joignez un justificatif médical que si c'est nécessaire.</p>
             )}
             <label>Objet<input value={prepa.objet} onChange={(e) => maj({ objet: e.target.value })} /></label>
             <label>Message (modifiable)<textarea rows={16} value={prepa.corps} onChange={(e) => maj({ corps: e.target.value })} /></label>

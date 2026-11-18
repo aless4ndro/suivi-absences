@@ -375,3 +375,51 @@ test('rattrapages : seule une séance validée diminue le solde', () => {
   for (const a of ['seance_programmee', 'seance_validee', 'validation_annulee', 'seance_non_effectuee', 'emargement_importe']) assert.ok(h.includes(a), a);
   db.fermer();
 });
+
+test('professeurs principaux : fiches, affectations datées, remplacement, historique, destinataires', () => {
+  const db = ouvrir(':memory:');
+  const classes = db.appeler('classes:list');
+  const mco1 = classes.find((c) => c.code === 'MCO 1ère année');
+  const ndrc1 = classes.find((c) => c.code === 'NDRC 1ère année');
+
+  const p1 = db.appeler('profs:save', { nom: 'Martin', prenom: 'Claire', email: 'c.martin@ecole.fr', telephone: '0600000000' });
+  assert.throws(() => db.appeler('profs:save', { nom: 'Autre', prenom: 'X', email: 'C.MARTIN@ecole.fr' }), /déjà celle de Claire Martin/);
+  assert.throws(() => db.appeler('profs:save', { nom: 'Y', prenom: 'Z', email: 'mauvaise' }), /invalide/);
+  assert.ok(db.appeler('profs:save', { nom: 'MARTIN', prenom: 'Claire' }).a_confirmer); // homonyme : confirmation demandée
+  const p2 = db.appeler('profs:save', { nom: 'Petit', prenom: 'Hugo', email: 'h.petit@ecole.fr' });
+
+  // un professeur, plusieurs classes
+  db.appeler('pp:affecter', { classe_id: mco1.id, professeur_id: p1, annee_scolaire: '2026-2027' });
+  db.appeler('pp:affecter', { classe_id: ndrc1.id, professeur_id: p1, annee_scolaire: '2026-2027' });
+  assert.strictEqual(db.appeler('pp:de', { classe_id: mco1.id, date: '2026-11-17' }).nom, 'Martin');
+  assert.strictEqual(db.appeler('pp:de', { classe_id: mco1.id, date: '2027-09-02' }), null); // nouvelle année : rien d'office
+
+  // remplacement en cours d'année : confirmation, puis ancienne affectation close la veille
+  const rep = { classe_id: mco1.id, professeur_id: p2, annee_scolaire: '2026-2027', date_debut: '2027-01-04' };
+  assert.ok(db.appeler('pp:affecter', rep).a_confirmer);
+  db.appeler('pp:affecter', { ...rep, remplacer: true });
+  assert.strictEqual(db.appeler('pp:de', { classe_id: mco1.id, date: '2027-01-03' }).nom, 'Martin');
+  assert.strictEqual(db.appeler('pp:de', { classe_id: mco1.id, date: '2027-01-04' }).nom, 'Petit');
+  const histo = db.appeler('pp:list', { classe_id: mco1.id, historique: true });
+  assert.strictEqual(histo.length, 2);
+  assert.strictEqual(histo.find((h) => h.nom === 'Martin').date_fin, '2027-01-03');
+  assert.throws(() => db.appeler('pp:affecter', { classe_id: mco1.id, professeur_id: p2, annee_scolaire: '2026-2027', date_debut: '2027-09-01' }), /comprise dans l'année scolaire/);
+
+  // fiche utilisée : pas de suppression, et pas de désactivation tant qu'une affectation court
+  assert.throws(() => db.appeler('profs:delete', p1), /Désactivez/);
+
+  // destinataires d'un apprenti de MCO 1 : le professeur principal est proposé selon la date
+  const jid = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: mco1.id, maitre_email: 'maitre@x.fr' });
+  const avant = db.appeler('destinataires:list', { jeune_id: jid, date: '2026-12-01' });
+  assert.ok(avant.some((d) => d.role === 'pp' && d.email === 'c.martin@ecole.fr'));
+  const apres = db.appeler('destinataires:list', { jeune_id: jid, date: '2027-02-01' });
+  assert.ok(apres.some((d) => d.role === 'pp' && d.email === 'h.petit@ecole.fr'));
+
+  // une modification de la fiche est reprise partout
+  db.appeler('profs:save', { id: p2, nom: 'Petit', prenom: 'Hugo', email: 'hugo.petit@ecole.fr' });
+  assert.ok(db.appeler('destinataires:list', { jeune_id: jid, date: '2027-02-01' }).some((d) => d.email === 'hugo.petit@ecole.fr'));
+
+  const al = db.appeler('pp:alertes', '2026-2027');
+  assert.ok(al.sans_pp.includes('GPME 1ère année'));
+  db.fermer();
+});

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { appeler, type FiltresEvenements, type Stats } from '../api';
+import { appeler, type AlertesPP, type FiltresEvenements, type Stats } from '../api';
 
 type Alertes = { a_traiter: number; a_notifier: number };
 
 export default function Accueil({ allerA }: { allerA: (page: string, filtre?: FiltresEvenements) => void }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [alertes, setAlertes] = useState<Alertes | null>(null);
+  const [pp, setPp] = useState<AlertesPP | null>(null);
   useEffect(() => {
+    appeler<AlertesPP>('pp:alertes').then(setPp);
     appeler<Stats>('stats').then(setStats);
     appeler<Alertes>('evenements:alertes').then(setAlertes);
   }, []);
@@ -27,6 +29,13 @@ export default function Accueil({ allerA }: { allerA: (page: string, filtre?: Fi
             <strong>À notifier</strong>
             <span className="discret">entreprise pas encore prévenue</span>
           </button>
+          {pp && pp.sans_pp.length > 0 && (
+            <button className="carte alerte" onClick={() => allerA('professeurs')}>
+              <span className="chiffre">{pp.sans_pp.length}</span>
+              <strong>Sans professeur principal</strong>
+              <span className="discret">classe(s), année {pp.annee}</span>
+            </button>
+          )}
         </div>
       )}
 

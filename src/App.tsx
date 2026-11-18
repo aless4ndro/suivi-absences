@@ -10,12 +10,14 @@ import Absences from './pages/Absences';
 import Calendrier from './pages/Calendrier';
 import Rattrapages from './pages/Rattrapages';
 import Recapitulatifs from './pages/Recapitulatifs';
+import Professeurs from './pages/Professeurs';
 
 const PAGES = [
   { id: 'accueil', titre: 'Accueil' },
   { id: 'absences', titre: 'Absences et retards' },
   { id: 'jeunes', titre: 'Apprentis' },
   { id: 'entreprises', titre: 'Entreprises' },
+  { id: 'professeurs', titre: 'Professeurs principaux' },
   { id: 'motifs', titre: 'Motifs' },
   { id: 'rattrapages', titre: 'Rattrapages' },
   { id: 'calendrier', titre: 'Calendrier' },
@@ -63,6 +65,7 @@ export default function App() {
         {page === 'absences' && <Absences key={JSON.stringify(filtreAbsences ?? {})} filtreInitial={filtreAbsences} />}
         {page === 'jeunes' && <Jeunes />}
         {page === 'entreprises' && <Entreprises />}
+        {page === 'professeurs' && <Professeurs />}
         {page === 'motifs' && <Motifs />}
         {page === 'calendrier' && <Calendrier />}
         {page === 'rattrapages' && <Rattrapages />}

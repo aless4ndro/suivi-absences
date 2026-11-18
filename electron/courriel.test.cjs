@@ -102,7 +102,7 @@ test('brouillon : Outlook réussi, échec puis repli mailto, hors Windows', asyn
   fs.rmSync(dossier, { recursive: true, force: true });
 });
 
-test('composer : destinataires cochés, limités aux adresses connues de l\'apprenti', () => {
+test('composer : destinataires choisis en À / Cc / Cci, adresses saisies vérifiées', () => {
   const d = {
     jeune_prenom: 'Léa', jeune_nom: 'Durand', classe_code: 'MCO 1ère année', type: 'absence', date_debut: '2026-11-16', date_fin: '2026-11-16',
     duree_minutes: 60, creneaux: [], maitre_email: 'maitre@x.fr', entreprise_email: 'rh@x.fr',
@@ -110,6 +110,12 @@ test('composer : destinataires cochés, limités aux adresses connues de l\'appr
   };
   assert.strictEqual(composer(d).a, 'maitre@x.fr');
   assert.strictEqual(composer(d, ['rh@x.fr', 'compta@x.fr']).a, 'rh@x.fr; compta@x.fr');
-  assert.strictEqual(composer(d, ['intrus@evil.fr', 'rh@x.fr']).a, 'rh@x.fr');
   assert.ok(composer(d, []).avertissement);
+  const m = composer(d, { a: ['maitre@x.fr'], cc: ['prof@ecole.fr', 'MAITRE@x.fr'], cci: 'archive@ecole.fr; ' });
+  assert.deepStrictEqual([m.a, m.cc, m.cci], ['maitre@x.fr', 'prof@ecole.fr', 'archive@ecole.fr']); // doublon retiré
+  assert.throws(() => composer(d, { a: ['pas-une-adresse'] }), /invalide/);
+  const u = urlMailto({ a: 'a@b.fr', cc: 'p@e.fr', cci: 'x@e.fr', objet: 'o', corps: 'c' });
+  assert.ok(u.includes('cc=p@e.fr') && u.includes('bcc=x@e.fr'));
+  const script = construireScript('C:\\m.json');
+  assert.ok(script.includes('$m.CC = $d.cc') && script.includes('$m.BCC = $d.cci'));
 });

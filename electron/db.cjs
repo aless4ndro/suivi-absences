@@ -4,6 +4,7 @@ const fs = require('node:fs');
 
 const CALENDRIERS = require('./calendriers-2026-2027.cjs');
 const { creerRattrapages } = require('./rattrapages.cjs');
+const { creerProfesseurs } = require('./professeurs.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -225,6 +226,31 @@ const MIGRATIONS = [
   );
   CREATE INDEX rattrapage_historique_jeune ON rattrapage_historique (jeune_id, id);
   `,
+  // v10 : professeurs principaux (répertoire) et leurs affectations datées par classe et année scolaire
+  `
+  CREATE TABLE professeurs (
+    id INTEGER PRIMARY KEY,
+    nom TEXT NOT NULL,
+    prenom TEXT NOT NULL,
+    email TEXT,
+    telephone TEXT,
+    fonction TEXT,
+    observations TEXT,
+    actif INTEGER NOT NULL DEFAULT 1 CHECK (actif IN (0, 1))
+  );
+  CREATE TABLE pp_affectations (
+    id INTEGER PRIMARY KEY,
+    classe_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    professeur_id INTEGER NOT NULL REFERENCES professeurs(id) ON DELETE RESTRICT,
+    annee_scolaire TEXT NOT NULL,
+    date_debut TEXT NOT NULL,
+    date_fin TEXT,
+    note TEXT,
+    cree_le TEXT NOT NULL
+  );
+  CREATE INDEX pp_affectations_classe ON pp_affectations (classe_id, date_debut);
+  CREATE INDEX pp_affectations_prof ON pp_affectations (professeur_id);
+  `,
 ];
 
 // Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
@@ -293,9 +319,9 @@ function ouvrir(chemin) {
     return rows.map((r) => ({ ...r, creneaux: parEvenement.get(r.id) ?? [] }));
   }
 
-  function destinatairesDe(jeuneId) {
+  function destinatairesDe(jeuneId, date) {
     const j = db.prepare(
-      `SELECT j.maitre_nom, j.maitre_telephone, j.maitre_email, j.entreprise_id, e.nom AS entreprise_nom,
+      `SELECT j.classe_id, j.maitre_nom, j.maitre_telephone, j.maitre_email, j.entreprise_id, e.nom AS entreprise_nom,
               e.telephone AS entreprise_telephone, e.email AS entreprise_email
        FROM jeunes j LEFT JOIN entreprises e ON e.id = j.entreprise_id WHERE j.id = ?`
     ).get(jeuneId);
@@ -307,6 +333,15 @@ function ouvrir(chemin) {
       for (const c of db.prepare('SELECT * FROM contacts WHERE entreprise_id = ? ORDER BY nom COLLATE NOCASE').all(j.entreprise_id)) {
         if (c.email) liste.push({ cle: `contact-${c.id}`, libelle: `${c.nom}${c.fonction ? ` (${c.fonction})` : ''}`, email: c.email, telephone: c.telephone });
       }
+    }
+    // Professeur principal de la classe à la date concernée : proposé, jamais ajouté d'office.
+    const pp = professeurs.ppDe(j.classe_id, date);
+    if (pp) {
+      liste.push({
+        cle: `pp-${pp.professeur_id}`, role: 'pp',
+        libelle: `Professeur principal : ${pp.prenom} ${pp.nom}${pp.actif ? '' : ' (fiche inactive)'}`,
+        email: pp.email ?? '', telephone: pp.telephone,
+      });
     }
     return liste;
   }
@@ -396,7 +431,10 @@ function ouvrir(chemin) {
     },
 
     // Adresses possibles pour écrire à propos d'un apprenti : maître d'apprentissage, entreprise, autres interlocuteurs.
-    'destinataires:list': (jeuneId) => destinatairesDe(Number(jeuneId)),
+    // arg : id de l'apprenti, ou { jeune_id, date } pour retrouver le professeur principal à cette date
+    'destinataires:list': (arg) => (typeof arg === 'object' && arg
+      ? destinatairesDe(Number(arg.jeune_id), arg.date)
+      : destinatairesDe(Number(arg))),
 
     'calendrier:annee': (classeId) =>
       db.prepare('SELECT date, type, libelle FROM calendrier_jours WHERE classe_id = ? ORDER BY date').all(Number(classeId)),
@@ -627,7 +665,7 @@ function ouvrir(chemin) {
          WHERE e.id = ?`
       ).get(Number(id));
       if (!r) throw new Error('Absence ou retard introuvable.');
-      return { ...avecCreneaux([r])[0], destinataires: destinatairesDe(r.jeune_id) };
+      return { ...avecCreneaux([r])[0], destinataires: destinatairesDe(r.jeune_id, r.date_debut) };
     },
 
     'evenements:alertes': () => ({
@@ -671,6 +709,8 @@ function ouvrir(chemin) {
   };
 
   Object.assign(actions, creerRattrapages(db, { vide, dateValide, heureValide, enMinutes, cle, tailleMax: TAILLE_MAX_PIECE }));
+  const professeurs = creerProfesseurs(db, { vide, dateValide, cle });
+  Object.assign(actions, professeurs.actions);
 
   return {
     appeler(action, arg) {

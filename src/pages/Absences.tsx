@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import ChoixDestinataires, { adressesInvalides, envoiParDefaut, ppInclus, repartition, toutesAdresses, type Envoi } from '../ChoixDestinataires';
 import {
   appeler, courriel, fichiers,
   type Apercu, type Classe, type Creneau, type Destinataire, type Horaires, type JourCalendrier, type Evenement, type FiltresEvenements, type Jeune, type Motif, type Piece, type PieceChoisie, type ResultatCourriel,
@@ -21,7 +22,7 @@ type Notif = {
   pieces: Piece[];
   choisies: number[];
   destinataires: Destinataire[];
-  adresses: string[];
+  envoi: Envoi;
   resultat?: ResultatCourriel;
 };
 
@@ -151,11 +152,10 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
       const [apercu, pieces, destinataires] = await Promise.all([
         courriel<Apercu>('apercu', { id: e.id }),
         appeler<Piece[]>('pieces:list', e.id),
-        appeler<Destinataire[]>('destinataires:list', e.jeune_id),
+        appeler<Destinataire[]>('destinataires:list', { jeune_id: e.jeune_id, date: e.date_debut }),
       ]);
-      // par défaut : le maître d'apprentissage, sinon l'entreprise (comme avant)
-      const defaut = destinataires.find((d) => d.cle === 'maitre') ?? destinataires.find((d) => d.cle === 'entreprise');
-      setNotif({ evenement: e, apercu, pieces, choisies: [], destinataires, adresses: defaut ? [defaut.email] : [] });
+      // par défaut : le maître d'apprentissage, sinon l'entreprise ; le professeur principal est seulement proposé
+      setNotif({ evenement: e, apercu, pieces, choisies: [], destinataires, envoi: envoiParDefaut(destinataires) });
     } catch (err) {
       setInfo((err as Error).message);
     }
@@ -163,8 +163,10 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
 
   async function ouvrirDansOutlook() {
     if (!notif) return;
+    const invalides = adressesInvalides(notif.envoi);
+    if (invalides.length) { setInfo(`Adresse(s) invalide(s) : ${invalides.join(', ')}`); return; }
     try {
-      const resultat = await courriel<ResultatCourriel>('ouvrir', { id: notif.evenement.id, piece_ids: notif.choisies, destinataires: notif.adresses });
+      const resultat = await courriel<ResultatCourriel>('ouvrir', { id: notif.evenement.id, piece_ids: notif.choisies, envoi: repartition(notif.envoi) });
       setNotif({ ...notif, resultat });
     } catch (err) {
       setInfo((err as Error).message);
@@ -264,26 +266,13 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
           <h2>Notifier l'entreprise : {notif.evenement.jeune_prenom} {notif.evenement.jeune_nom}</h2>
           {!notif.resultat && (
             <>
-              <h3>Destinataire(s)</h3>
-              {notif.destinataires.length === 0 ? (
-                <p className="erreur">Aucune adresse e-mail connue pour cet apprenti : complétez sa fiche et celle de l'entreprise, ou saisissez l'adresse dans Outlook.</p>
-              ) : (
-                <ul className="pieces">
-                  {notif.destinataires.map((d) => (
-                    <li key={d.cle}>
-                      <label className="case">
-                        <input type="checkbox" checked={notif.adresses.includes(d.email)}
-                          onChange={(ev) => setNotif({ ...notif, adresses: ev.target.checked ? [...notif.adresses, d.email] : notif.adresses.filter((x) => x !== d.email) })} />
-                        {d.libelle} <span className="discret">{d.email}{d.telephone ? ` · ${d.telephone}` : ''}</span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
+              <ChoixDestinataires destinataires={notif.destinataires} envoi={notif.envoi} onChange={(envoi) => setNotif({ ...notif, envoi })} />
+              {ppInclus(notif.envoi, notif.destinataires) && (
+                <p className="alerte-texte">⚠ Le professeur principal recevra le message complet, motif compris{notif.choisies.length ? ', et les pièces jointes cochées' : ''}. Un certificat médical est une donnée de santé : ne le transmettez que si c'est nécessaire.</p>
               )}
             </>
           )}
-          {notif.adresses.length === 0 && <p className="erreur">Aucune adresse cochée : vous saisirez le destinataire dans Outlook.</p>}
-          <p><strong>À :</strong> {notif.adresses.join('; ') || <span className="discret">(à saisir dans Outlook)</span>}</p>
+          {notif.resultat && <p><strong>Destinataires :</strong> {toutesAdresses(notif.envoi).join('; ') || '(saisis dans Outlook)'}</p>}
           <p><strong>Objet :</strong> {notif.apercu.objet}</p>
           <pre className="apercu">{notif.apercu.corps}</pre>
           <p className="discret">Le message s'ouvre dans Outlook : relisez-le, modifiez-le si besoin, puis envoyez-le vous-même.</p>

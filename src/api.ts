@@ -92,7 +92,17 @@ export type Evenement = {
 };
 
 export type Contact = { id?: number; entreprise_id: number; nom: string; fonction: string | null; telephone: string | null; email: string | null };
-export type Destinataire = { cle: string; libelle: string; email: string; telephone: string | null };
+export type Destinataire = { cle: string; libelle: string; email: string; telephone: string | null; role?: 'pp' };
+export type Professeur = {
+  id?: number; nom: string; prenom: string; email: string | null; telephone: string | null; fonction: string | null;
+  observations: string | null; actif: number; nb_affectations?: number; classes_actuelles?: string[];
+};
+export type Affectation = {
+  id: number; classe_id: number; professeur_id: number; annee_scolaire: string; date_debut: string; date_fin: string | null;
+  fin_effective: string; note: string | null; classe_code: string; classe_libelle: string; formation: string;
+  nom: string; prenom: string; email: string | null; telephone: string | null; actif: number; en_cours: boolean; a_venir: boolean;
+};
+export type AlertesPP = { annee: string; date_reference: string; sans_pp: string[]; sans_email: string[]; inactifs: string[] };
 export type Horaires = { debut: string; pause_debut: string; pause_fin: string; fin: string };
 
 export type JourCalendrier = { date: string; type: 'centre' | 'entreprise' | 'autre'; libelle: string | null };

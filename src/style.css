@@ -115,3 +115,21 @@ button.petit + button.petit { margin-left: 4px; }
 .carte strong { display: block; font-size: 13px; font-weight: 600; color: var(--texte); }
 .carte .discret { display: block; font-size: 12px; font-weight: 400; color: var(--discret); }
 .carte.alerte .chiffre { color: #b86e00; }
+
+/* Professeurs principaux et choix des destinataires */
+.bloc-alertes { background: #fff9ee; border: 1px solid #e0a030; border-radius: 8px; padding: 10px 14px; margin: 12px 0 16px; color: #6b4300; }
+.bloc-alertes ul { margin: 6px 0 0; padding-left: 18px; }
+.alerte-texte { color: #b86e00; font-weight: 600; }
+.actions-ligne { white-space: nowrap; }
+.actions-ligne button { margin: 2px 4px 2px 0; padding: 4px 8px; font-size: 12px; }
+.lien-danger { color: var(--danger); }
+.ligne-manquante td { background: #fffaf0; }
+.fenetre.petite { width: min(480px, 100%); }
+.table-dest { margin-bottom: 8px; }
+.table-dest td { vertical-align: middle; }
+.table-dest td:last-child { width: 190px; }
+.table-dest .etiquette { margin-left: 6px; }
+.ligne-pp td { background: #f3f8ff; }
+.autres-adresses { margin: 8px 0; }
+.autres-adresses summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.nowrap { white-space: nowrap; }
