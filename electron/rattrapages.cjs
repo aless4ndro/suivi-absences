@@ -22,7 +22,7 @@ const ETABLISSEMENT_DEFAUT = {
 };
 
 function creerRattrapages(db, h) {
-  const { vide, dateValide, heureValide, enMinutes, cle, tailleMax } = h;
+  const { vide, dateValide, heureValide, enMinutes, cle, classeA, tailleMax } = h;
 
   const maintenant = () => {
     const d = new Date();
@@ -114,13 +114,17 @@ function creerRattrapages(db, h) {
       if (debut && fin && fin < debut) throw new Error('La date de fin doit être après la date de début.');
       const w = [];
       const p = [];
-      if (f.classe_id) { w.push('j.classe_id = ?'); p.push(Number(f.classe_id)); }
+      // Classe de l'apprenti à la fin de la période (ou aujourd'hui) : un récapitulatif de juin reste dans la classe de juin.
+      const d = new Date();
+      const auj = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const ref = fin && fin < auj ? fin : auj;
+      if (f.classe_id) { w.push(`${classeA('?')} = ?`); p.push(ref, Number(f.classe_id)); }
       if (f.jeune_id) { w.push('j.id = ?'); p.push(Number(f.jeune_id)); }
       let jeunes = db.prepare(
-        `SELECT j.id, j.nom, j.prenom, j.classe_id, c.code AS classe_code
-         FROM jeunes j JOIN classes c ON c.id = j.classe_id ${w.length ? `WHERE ${w.join(' AND ')}` : ''}
+        `SELECT j.id, j.nom, j.prenom, c.id AS classe_id, c.code AS classe_code
+         FROM jeunes j JOIN classes c ON c.id = ${classeA('?')} ${w.length ? `WHERE ${w.join(' AND ')}` : ''}
          ORDER BY c.ordre, j.nom COLLATE NOCASE, j.prenom COLLATE NOCASE`
-      ).all(...p);
+      ).all(ref, ...p);
       if (vide(f.recherche)) {
         const q = cle(f.recherche);
         jeunes = jeunes.filter((j) => cle(`${j.nom} ${j.prenom}`).includes(q) || cle(`${j.prenom} ${j.nom}`).includes(q));
@@ -294,8 +298,8 @@ function creerRattrapages(db, h) {
       liste.sort((a, b) => (a.date + a.heure_debut).localeCompare(b.date + b.heure_debut));
       const j = db.prepare(
         `SELECT j.id, j.nom, j.prenom, j.civilite, j.adresse, j.code_postal, j.ville, c.code AS classe_code
-         FROM jeunes j JOIN classes c ON c.id = j.classe_id WHERE j.id = ?`
-      ).get(liste[0].jeune_id);
+         FROM jeunes j JOIN classes c ON c.id = ${classeA('?')} WHERE j.id = ?`
+      ).get(liste[0].date, liste[0].jeune_id);
       const pd = liste.every((s) => s.periode_debut === liste[0].periode_debut) ? liste[0].periode_debut : null;
       const pf = liste.every((s) => s.periode_fin === liste[0].periode_fin) ? liste[0].periode_fin : null;
       const c = compteur(j.id, pd, pf);

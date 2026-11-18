@@ -423,3 +423,52 @@ test('professeurs principaux : fiches, affectations datées, remplacement, histo
   assert.ok(al.sans_pp.includes('GPME 1ère année'));
   db.fermer();
 });
+
+test('passage de classe : les absences passées restent dans l\'ancienne classe, avec son professeur principal', () => {
+  const db = ouvrir(':memory:');
+  const classes = db.appeler('classes:list');
+  const g1 = classes.find((c) => c.code === 'GPME 1ère année');
+  const g2 = classes.find((c) => c.code === 'GPME 2ème année');
+  const pa = db.appeler('profs:save', { nom: 'Avant', prenom: 'Anne', email: 'anne@ecole.fr' });
+  const pb = db.appeler('profs:save', { nom: 'Apres', prenom: 'Bruno', email: 'bruno@ecole.fr' });
+  db.appeler('pp:affecter', { classe_id: g1.id, professeur_id: pa, annee_scolaire: '2025-2026' });
+  db.appeler('pp:affecter', { classe_id: g2.id, professeur_id: pb, annee_scolaire: '2026-2027' });
+
+  const jid = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: g1.id });
+  const irrec = db.appeler('motifs:list').find((m) => m.statut === 'irrecevable').id;
+  db.appeler('evenements:save', { jeune_id: jid, type: 'absence', motif_id: irrec, creneaux: [{ date: '2026-06-10', heure_debut: '08:30', heure_fin: '12:30' }] });
+
+  // passage en 2ème année au 1er septembre 2026
+  assert.strictEqual(db.appeler('jeunes:passage', { ids: [jid], classe_id: g2.id, date: '2026-09-01' }), 1);
+  db.appeler('evenements:save', { jeune_id: jid, type: 'retard', creneaux: [{ date: '2026-10-05', heure_debut: '08:30', heure_fin: '09:00' }] });
+
+  assert.strictEqual(db.appeler('jeunes:list')[0].classe_code, 'GPME 2ème année');
+  const evts = db.appeler('evenements:list');
+  assert.strictEqual(evts.find((e) => e.type === 'absence').classe_code, 'GPME 1ère année');
+  assert.strictEqual(evts.find((e) => e.type === 'retard').classe_code, 'GPME 2ème année');
+  assert.strictEqual(db.appeler('evenements:list', { classe_id: g1.id }).length, 1);
+
+  // le mail sur l'absence de juin propose l'ancien professeur principal
+  const absence = evts.find((e) => e.type === 'absence');
+  assert.ok(db.appeler('evenements:detail', absence.id).destinataires.some((d) => d.email === 'anne@ecole.fr'));
+  assert.ok(db.appeler('destinataires:list', { jeune_id: jid, date: '2026-10-05' }).some((d) => d.email === 'bruno@ecole.fr'));
+
+  // récapitulatif de juin : classé en 1ère année
+  assert.strictEqual(db.appeler('rattrapages:bilan', { debut: '2026-06-01', fin: '2026-06-30', classe_id: g1.id }).apprentis.length, 1);
+
+  // historique, puis passage programmé pour une date future et annulé
+  assert.strictEqual(db.appeler('jeunes:classes', jid).length, 2);
+  db.appeler('jeunes:passage', { ids: [jid], classe_id: g1.id, date: '2099-09-01' });
+  assert.strictEqual(db.appeler('jeunes:list')[0].passage_prevu.date, '2099-09-01');
+  assert.strictEqual(db.appeler('jeunes:list')[0].classe_code, 'GPME 2ème année'); // pas encore appliqué
+  const prevu = db.appeler('jeunes:classes', jid).find((l) => l.date_debut === '2099-09-01');
+  db.appeler('jeunes:classe:supprimer', prevu.id);
+  assert.strictEqual(db.appeler('jeunes:list')[0].passage_prevu, null);
+
+  // correction d'une erreur de saisie : pas de nouvelle ligne d'historique
+  const j = db.appeler('jeunes:list')[0];
+  db.appeler('jeunes:save', { ...j, classe_id: classes.find((c) => c.code === 'MCO 2ème année').id, classe_correction: true });
+  assert.strictEqual(db.appeler('jeunes:classes', jid).length, 2);
+  assert.strictEqual(db.appeler('jeunes:list')[0].classe_code, 'MCO 2ème année');
+  db.fermer();
+});

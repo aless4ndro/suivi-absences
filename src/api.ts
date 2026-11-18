@@ -1,4 +1,4 @@
-export type Classe = { id: number; code: string; libelle: string };
+export type Classe = { id: number; code: string; libelle: string; ordre?: number };
 export type Entreprise = {
   id?: number; nom: string; adresse: string | null; telephone: string | null;
   email: string | null; nb_jeunes?: number;
@@ -9,6 +9,8 @@ export type Jeune = {
   civilite?: string | null; adresse?: string | null; code_postal?: string | null; ville?: string | null;
   maitre_nom: string | null; maitre_telephone: string | null; maitre_email: string | null;
   classe_code?: string; entreprise_nom?: string | null;
+  passage_prevu?: { date: string; classe_code: string } | null;
+  classe_depuis?: string; classe_correction?: boolean;
   entreprise_telephone?: string | null; entreprise_email?: string | null;
 };
 export type Stats = {
@@ -173,3 +175,5 @@ export type DonneesDocument = {
   jeune: { id: number; nom: string; prenom: string; civilite: string | null; adresse: string | null; code_postal: string | null; ville: string | null; classe_code: string };
   seances: Seance[]; periode_debut: string | null; periode_fin: string | null; dues: number; solde_avant: number; etablissement: Etablissement;
 };
+
+export type LigneClasse = { id: number; jeune_id: number; classe_id: number; date_debut: string; note: string | null; classe_code: string };

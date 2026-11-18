@@ -25,6 +25,13 @@ function sqlCalendriers() {
   return lignes.join('\n');
 }
 
+// Date « depuis toujours » de la première classe d'un apprenti.
+const ORIGINE = '2000-01-01';
+
+// Classe d'un apprenti à une date (expression SQL ; l'alias j doit désigner la table jeunes).
+const classeA = (date) =>
+  `COALESCE((SELECT jc.classe_id FROM jeune_classes jc WHERE jc.jeune_id = j.id AND jc.date_debut <= ${date} ORDER BY jc.date_debut DESC LIMIT 1), j.classe_id)`;
+
 const MIGRATIONS = [
   // v1 : schéma initial
   `
@@ -251,6 +258,20 @@ const MIGRATIONS = [
   CREATE INDEX pp_affectations_classe ON pp_affectations (classe_id, date_debut);
   CREATE INDEX pp_affectations_prof ON pp_affectations (professeur_id);
   `,
+  // v11 : historique des classes d'un apprenti (passage en 2ème année, changement de classe).
+  // Une ligne = « dans telle classe à partir de telle date », jusqu'à la ligne suivante.
+  `
+  CREATE TABLE jeune_classes (
+    id INTEGER PRIMARY KEY,
+    jeune_id INTEGER NOT NULL REFERENCES jeunes(id) ON DELETE CASCADE,
+    classe_id INTEGER NOT NULL REFERENCES classes(id),
+    date_debut TEXT NOT NULL,
+    note TEXT,
+    UNIQUE (jeune_id, date_debut)
+  );
+  CREATE INDEX jeune_classes_jeune ON jeune_classes (jeune_id, date_debut);
+  INSERT INTO jeune_classes (jeune_id, classe_id, date_debut) SELECT id, classe_id, '${ORIGINE}' FROM jeunes;
+  `,
 ];
 
 // Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
@@ -261,6 +282,11 @@ const TAILLE_MAX_PIECE = 10 * 1024 * 1024;
 const heureValide = (h) => typeof h === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(h);
 const enMinutes = (h) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
 const jourMois = (iso) => iso.split('-').reverse().join('/');
+const ajouterJour = (iso, n) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
 
 function dateValide(s) {
   if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
@@ -319,6 +345,34 @@ function ouvrir(chemin) {
     return rows.map((r) => ({ ...r, creneaux: parEvenement.get(r.id) ?? [] }));
   }
 
+  const aujourdhui = () => {
+    const d = new Date();
+    const p2 = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  };
+  const classeDe = (jeuneId, date) => {
+    const r = db.prepare(`SELECT ${classeA('?')} AS c FROM jeunes j WHERE j.id = ?`).get(dateValide(date) ? date : aujourdhui(), Number(jeuneId));
+    return r ? r.c : null;
+  };
+  // La classe « actuelle » (affichage, effectifs) suit l'historique : un passage programmé s'applique le jour venu.
+  const synchroniserClasses = () => {
+    db.prepare(`UPDATE jeunes AS j SET classe_id = ${classeA('?')} WHERE classe_id <> ${classeA('?')}`).run(aujourdhui(), aujourdhui());
+  };
+  synchroniserClasses();
+
+  // Place un apprenti dans une classe à partir d'une date (remplace un éventuel changement prévu le même jour).
+  function changerClasse(jeuneId, classeId, date, note) {
+    if (!dateValide(date)) throw new Error('Date de changement de classe invalide.');
+    if (!db.prepare('SELECT 1 FROM classes WHERE id = ?').get(Number(classeId))) throw new Error('Classe introuvable.');
+    const avant = classeDe(jeuneId, ajouterJour(date, -1));
+    db.prepare(
+      `INSERT INTO jeune_classes (jeune_id, classe_id, date_debut, note) VALUES (?,?,?,?)
+       ON CONFLICT(jeune_id, date_debut) DO UPDATE SET classe_id = excluded.classe_id, note = excluded.note`
+    ).run(Number(jeuneId), Number(classeId), date, vide(note));
+    // ligne devenue inutile (même classe que la période précédente)
+    if (avant === Number(classeId) && date !== ORIGINE) db.prepare('DELETE FROM jeune_classes WHERE jeune_id = ? AND date_debut = ?').run(Number(jeuneId), date);
+  }
+
   function destinatairesDe(jeuneId, date) {
     const j = db.prepare(
       `SELECT j.classe_id, j.maitre_nom, j.maitre_telephone, j.maitre_email, j.entreprise_id, e.nom AS entreprise_nom,
@@ -335,7 +389,7 @@ function ouvrir(chemin) {
       }
     }
     // Professeur principal de la classe à la date concernée : proposé, jamais ajouté d'office.
-    const pp = professeurs.ppDe(j.classe_id, date);
+    const pp = professeurs.ppDe(classeDe(jeuneId, date) ?? j.classe_id, date);
     if (pp) {
       liste.push({
         cle: `pp-${pp.professeur_id}`, role: 'pp',
@@ -482,15 +536,55 @@ function ouvrir(chemin) {
       return true;
     },
 
-    'jeunes:list': () =>
-      db.prepare(
+    'jeunes:list': () => {
+      synchroniserClasses();
+      const prevus = db.prepare(
+        `SELECT jc.jeune_id, jc.date_debut, c.code FROM jeune_classes jc JOIN classes c ON c.id = jc.classe_id
+         WHERE jc.date_debut > ? ORDER BY jc.date_debut`
+      ).all(aujourdhui());
+      return db.prepare(
         `SELECT j.*, c.code AS classe_code, e.nom AS entreprise_nom,
                 e.telephone AS entreprise_telephone, e.email AS entreprise_email
          FROM jeunes j
          JOIN classes c ON c.id = j.classe_id
          LEFT JOIN entreprises e ON e.id = j.entreprise_id
          ORDER BY c.ordre, j.nom COLLATE NOCASE, j.prenom COLLATE NOCASE`
-      ).all(),
+      ).all().map((j) => {
+        const p = prevus.find((x) => x.jeune_id === j.id);
+        return { ...j, passage_prevu: p ? { date: p.date_debut, classe_code: p.code } : null };
+      });
+    },
+
+    // Historique des classes d'un apprenti (la plus récente d'abord).
+    'jeunes:classes': (id) =>
+      db.prepare(
+        `SELECT jc.*, c.code AS classe_code FROM jeune_classes jc JOIN classes c ON c.id = jc.classe_id
+         WHERE jc.jeune_id = ? ORDER BY jc.date_debut DESC`
+      ).all(Number(id)),
+
+    // Annule une ligne d'historique (erreur de saisie ou passage programmé abandonné) ; la première ne peut pas l'être.
+    'jeunes:classe:supprimer': (id) => {
+      const l = db.prepare('SELECT * FROM jeune_classes WHERE id = ?').get(Number(id));
+      if (!l) return true;
+      const n = db.prepare('SELECT COUNT(*) AS n FROM jeune_classes WHERE jeune_id = ?').get(l.jeune_id).n;
+      if (n <= 1) throw new Error("C'est la seule classe de cet apprenti : modifiez-la plutôt.");
+      db.prepare('DELETE FROM jeune_classes WHERE id = ?').run(l.id);
+      synchroniserClasses();
+      return true;
+    },
+
+    // Passage de plusieurs apprentis dans une nouvelle classe à une date (rentrée, réorientation).
+    'jeunes:passage': ({ ids, classe_id, date }) => {
+      const liste = (ids ?? []).map(Number).filter(Boolean);
+      if (!liste.length) throw new Error('Cochez au moins un apprenti.');
+      db.exec('BEGIN');
+      try {
+        for (const id of liste) changerClasse(id, classe_id, date, 'Passage de classe');
+        db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
+      synchroniserClasses();
+      return liste.length;
+    },
 
     'jeunes:save': (j) => {
       const nom = vide(j.nom);
@@ -505,18 +599,38 @@ function ouvrir(chemin) {
         vide(j.adresse), vide(j.code_postal), vide(j.ville),
       ];
       if (j.id) {
-        db.prepare(
-          `UPDATE jeunes SET nom=?, prenom=?, email=?, telephone=?, classe_id=?, entreprise_id=?,
-           maitre_nom=?, maitre_telephone=?, maitre_email=?, civilite=?, adresse=?, code_postal=?, ville=? WHERE id=?`
-        ).run(...p, j.id);
+        // Changement de classe : enregistré dans l'historique à partir de la date indiquée (aujourd'hui par défaut),
+        // pour que les absences passées restent rattachées à l'ancienne classe.
+        const actuelle = classeDe(j.id, aujourdhui());
+        db.exec('BEGIN');
+        try {
+          db.prepare(
+            `UPDATE jeunes SET nom=?, prenom=?, email=?, telephone=?, classe_id=?, entreprise_id=?,
+             maitre_nom=?, maitre_telephone=?, maitre_email=?, civilite=?, adresse=?, code_postal=?, ville=? WHERE id=?`
+          ).run(...p, j.id);
+          if (actuelle !== Number(j.classe_id)) {
+            if (j.classe_correction) {
+              // erreur de saisie : la classe est corrigée sur toute la période en cours
+              const l = db.prepare('SELECT id FROM jeune_classes WHERE jeune_id = ? AND date_debut <= ? ORDER BY date_debut DESC LIMIT 1').get(j.id, aujourdhui());
+              if (l) db.prepare('UPDATE jeune_classes SET classe_id = ? WHERE id = ?').run(Number(j.classe_id), l.id);
+              else changerClasse(j.id, j.classe_id, ORIGINE);
+            } else {
+              changerClasse(j.id, j.classe_id, j.classe_depuis || aujourdhui(), j.classe_note);
+            }
+          }
+          db.exec('COMMIT');
+        } catch (e) { db.exec('ROLLBACK'); throw e; }
+        synchroniserClasses();
         return j.id;
       }
-      return Number(
+      const id = Number(
         db.prepare(
           `INSERT INTO jeunes (nom, prenom, email, telephone, classe_id, entreprise_id,
            maitre_nom, maitre_telephone, maitre_email, civilite, adresse, code_postal, ville) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
         ).run(...p).lastInsertRowid
       );
+      db.prepare('INSERT INTO jeune_classes (jeune_id, classe_id, date_debut) VALUES (?,?,?)').run(id, Number(j.classe_id), ORIGINE);
+      return id;
     },
 
     'jeunes:delete': (id) => {
@@ -528,7 +642,7 @@ function ouvrir(chemin) {
       const where = [];
       const p = [];
       if (f.jeune_id) { where.push('e.jeune_id = ?'); p.push(Number(f.jeune_id)); }
-      if (f.classe_id) { where.push('j.classe_id = ?'); p.push(Number(f.classe_id)); }
+      if (f.classe_id) { where.push(`${classeA('e.date_debut')} = ?`); p.push(Number(f.classe_id)); }
       if (f.type === 'absence' || f.type === 'retard') { where.push('e.type = ?'); p.push(f.type); }
       if (typeof f.mois === 'string' && /^\d{4}-\d{2}$/.test(f.mois)) {
         // l'événement touche ce mois s'il commence avant la fin du mois et finit après le début
@@ -545,7 +659,7 @@ function ouvrir(chemin) {
                 (SELECT COUNT(*) FROM pieces_jointes pj WHERE pj.evenement_id = e.id) AS nb_pieces
          FROM evenements e
          JOIN jeunes j ON j.id = e.jeune_id
-         JOIN classes c ON c.id = j.classe_id
+         JOIN classes c ON c.id = ${classeA('e.date_debut')}
          LEFT JOIN entreprises en ON en.id = j.entreprise_id
          LEFT JOIN motifs m ON m.id = e.motif_id
          ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
@@ -659,7 +773,7 @@ function ouvrir(chemin) {
                 m.libelle AS motif_libelle, m.statut AS motif_statut
          FROM evenements e
          JOIN jeunes j ON j.id = e.jeune_id
-         JOIN classes c ON c.id = j.classe_id
+         JOIN classes c ON c.id = ${classeA('e.date_debut')}
          LEFT JOIN entreprises en ON en.id = j.entreprise_id
          LEFT JOIN motifs m ON m.id = e.motif_id
          WHERE e.id = ?`
@@ -699,7 +813,7 @@ function ouvrir(chemin) {
       return true;
     },
 
-    'stats': () => ({
+    'stats': () => (synchroniserClasses(), {
       classes: db.prepare(
         `SELECT c.id, c.code, c.libelle, COUNT(j.id) AS nb_jeunes
          FROM classes c LEFT JOIN jeunes j ON j.classe_id = c.id GROUP BY c.id ORDER BY c.ordre, c.id`
@@ -708,7 +822,7 @@ function ouvrir(chemin) {
     }),
   };
 
-  Object.assign(actions, creerRattrapages(db, { vide, dateValide, heureValide, enMinutes, cle, tailleMax: TAILLE_MAX_PIECE }));
+  Object.assign(actions, creerRattrapages(db, { vide, dateValide, heureValide, enMinutes, cle, classeA, tailleMax: TAILLE_MAX_PIECE }));
   const professeurs = creerProfesseurs(db, { vide, dateValide, cle });
   Object.assign(actions, professeurs.actions);
 
