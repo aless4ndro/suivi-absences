@@ -139,3 +139,18 @@ button.petit + button.petit { margin-left: 4px; }
 .bloc-bascule h3 { margin: 6px 0; }
 .bloc-bascule .entete { align-items: center; }
 .bloc-bascule .table-dest td:last-child { width: 280px; }
+
+/* Recherche */
+.champ-recherche { position: relative; max-width: 560px; margin: 0 0 14px; }
+.champ-recherche input { width: 100%; padding: 9px 36px 9px 12px; font-size: 14px; }
+.champ-recherche .effacer { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; padding: 4px 8px; color: var(--discret); }
+.recherche-generale { position: relative; max-width: 640px; margin-bottom: 18px; }
+.recherche-generale .champ-recherche { max-width: none; margin: 0; }
+.recherche-generale input { font-size: 16px; padding: 12px 40px 12px 14px; }
+.suggestions { position: absolute; z-index: 20; left: 0; right: 0; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--carte); border: 1px solid var(--bord); border-radius: 8px; box-shadow: 0 6px 20px #0002; }
+.suggestions li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+.suggestions li.actif { background: #e8f0fc; }
+.suggestions li.aucun { cursor: default; color: var(--discret); }
+tr.clic { cursor: pointer; }
+tr.clic:hover td { background: #f3f8ff; }
+.suggestions .etiquette { margin-left: 8px; }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { auth, type Etat, type FiltresEvenements } from './api';
+import { auth, type Cible, type Etat, type FiltresEvenements } from './api';
 import Accueil from './pages/Accueil';
 import Jeunes from './pages/Jeunes';
 import Entreprises from './pages/Entreprises';
@@ -30,10 +30,15 @@ type PageId = (typeof PAGES)[number]['id'];
 export default function App() {
   const [page, setPage] = useState<PageId>('accueil');
   const [etat, setEtat] = useState<Etat | null>(null);
+  const [cible, setCible] = useState<Cible | null>(null);
   const [filtreAbsences, setFiltreAbsences] = useState<FiltresEvenements | undefined>();
   const allerA = (id: string, filtre?: FiltresEvenements) => {
     setFiltreAbsences(filtre);
     setPage(id as PageId);
+  };
+  const ouvrirFiche = (type: Cible['type'], id: number) => {
+    setCible({ type, id });
+    setPage(type === 'apprenti' ? 'jeunes' : 'entreprises');
   };
   const rafraichir = () => auth<Etat>('etat').then(setEtat);
   useEffect(() => {
@@ -60,11 +65,11 @@ export default function App() {
         <button className="bas" onClick={() => auth('verrouiller').then(rafraichir)}>Verrouiller</button>
       </nav>
       <main>
-        {page === 'accueil' && <Accueil allerA={allerA} />
+        {page === 'accueil' && <Accueil allerA={allerA} ouvrirFiche={ouvrirFiche} />
         }
         {page === 'absences' && <Absences key={JSON.stringify(filtreAbsences ?? {})} filtreInitial={filtreAbsences} />}
-        {page === 'jeunes' && <Jeunes />}
-        {page === 'entreprises' && <Entreprises />}
+        {page === 'jeunes' && <Jeunes cible={cible?.type === 'apprenti' ? cible.id : null} apresCible={() => setCible(null)} />}
+        {page === 'entreprises' && <Entreprises cible={cible?.type === 'entreprise' ? cible.id : null} apresCible={() => setCible(null)} />}
         {page === 'professeurs' && <Professeurs />}
         {page === 'motifs' && <Motifs />}
         {page === 'calendrier' && <Calendrier />}

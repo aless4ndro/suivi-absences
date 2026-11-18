@@ -1,12 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { appeler, MOTIFS_SORTIE, type Classe, type Contact, type Entreprise, type Jeune, type LigneClasse, type LigneContrat } from '../api';
 import Bascule from './Bascule';
+import { correspond } from '../recherche';
 import { aujourdhui, formaterDate } from '../format';
 
 const ORIGINE = '2000-01-01';
 const normaliser = (v?: string | null) => (v ?? '').trim();
 
-export default function Jeunes() {
+export default function Jeunes({ cible, apresCible }: { cible?: number | null; apresCible?: () => void }) {
+  const [recherche, setRecherche] = useState('');
   const [classes, setClasses] = useState<Classe[]>([]);
   const [entreprises, setEntreprises] = useState<Entreprise[]>([]);
   const [liste, setListe] = useState<Jeune[]>([]);
@@ -39,7 +41,10 @@ export default function Jeunes() {
   const enFormation = liste.filter((j) => !j.sorti);
   const nbSortis = liste.length - enFormation.length;
   const base = voirSortis ? liste : enFormation;
-  const visibles = filtre === 'toutes' ? base : base.filter((j) => j.classe_id === filtre);
+  // Une recherche porte sur toute la liste (toutes classes) ; sans recherche, l'onglet de classe s'applique.
+  const visibles = recherche.trim()
+    ? base.filter((j) => correspond(recherche, j.nom, j.prenom, `${j.prenom} ${j.nom}`, j.classe_code, classes.find((c) => c.id === j.classe_id)?.libelle))
+    : filtre === 'toutes' ? base : base.filter((j) => j.classe_id === filtre);
 
   function ouvrirFiche(j: Jeune) {
     setErreur(''); setInfo('');
@@ -86,6 +91,13 @@ export default function Jeunes() {
       if (j && fiche) { setFiche({ ...fiche, classe_id: j.classe_id }); setClasseInitiale(j.classe_id); }
     } catch (err) { setErreur((err as Error).message); }
   }
+
+  useEffect(() => {
+    if (!cible || liste.length === 0) return;
+    const j = liste.find((x) => x.id === cible);
+    if (j) { ouvrirFiche(j); window.scrollTo(0, 0); document.querySelector('main')?.scrollTo(0, 0); }
+    apresCible?.();
+  }, [cible, liste]);
 
   function nouveau() {
     setErreur(''); setInfo(''); setHistorique([]); setClasseInitiale(null); setContrats([]); setContratInitial(null); setSortie(null);
@@ -147,6 +159,10 @@ export default function Jeunes() {
         ))}
       </div>
 
+      <div className="champ-recherche">
+        <input type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Nom, prénom, formation ou classe" />
+        {recherche && <button type="button" className="effacer" onClick={() => setRecherche('')} title="Effacer la recherche" aria-label="Effacer la recherche">✕</button>}
+      </div>
       {nbSortis > 0 && (
         <label className="case discret"><input type="checkbox" checked={voirSortis} onChange={(e) => setVoirSortis(e.target.checked)} /> Afficher les apprentis sortis ({nbSortis})</label>
       )}
@@ -303,7 +319,10 @@ export default function Jeunes() {
       )}
 
       {visibles.length === 0 ? (
-        <p className="discret">Aucun apprenti enregistré ici pour le moment.</p>
+        <p className="discret">
+          {recherche.trim() ? 'Aucun résultat trouvé.' : 'Aucun apprenti enregistré ici pour le moment.'}
+          {recherche.trim() && !voirSortis && nbSortis > 0 && " Des apprentis sortis existent : cochez « Afficher les apprentis sortis », ou cherchez depuis l'Accueil."}
+        </p>
       ) : (
         <table>
           <thead>
@@ -311,7 +330,7 @@ export default function Jeunes() {
           </thead>
           <tbody>
             {visibles.map((j) => (
-              <tr key={j.id}>
+              <tr key={j.id} className="clic" onClick={() => ouvrirFiche(j)}>
                 <td>
                   <strong>{j.nom} {j.prenom}</strong>{j.sorti && <span className="etiquette st-rouge">sorti(e) le {formaterDate(j.sorti_le!)}</span>}
                   <div className="discret">{[j.email, j.telephone].filter(Boolean).join(' · ')}</div>
@@ -323,7 +342,7 @@ export default function Jeunes() {
                   {j.maitre_nom}
                   <div className="discret">{[j.maitre_email, j.maitre_telephone].filter(Boolean).join(' · ')}</div>
                 </td>
-                <td className="droite">
+                <td className="droite" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => ouvrirFiche(j)}>Modifier</button>
                   <button className="danger" onClick={() => supprimer(j)}>Supprimer</button>
                 </td>

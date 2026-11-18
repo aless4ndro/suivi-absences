@@ -1,7 +1,7 @@
 export type Classe = { id: number; code: string; libelle: string; ordre?: number };
 export type Entreprise = {
   id?: number; nom: string; adresse: string | null; telephone: string | null;
-  email: string | null; nb_jeunes?: number;
+  email: string | null; nb_jeunes?: number; nom_commercial?: string | null; siret?: string | null;
 };
 export type Jeune = {
   id?: number; nom: string; prenom: string; email: string | null; telephone: string | null;
@@ -186,3 +186,7 @@ export type LigneContrat = {
 export const MOTIFS_SORTIE: Record<string, string> = {
   demission: 'Démission / abandon', rupture: 'Rupture du contrat', diplome: 'Fin de formation (diplômé)', autre: 'Autre sortie',
 };
+export type ResultatRecherche =
+  | { type: 'apprenti'; id: number; libelle: string; classe: string; annee: string; sorti: boolean; sorti_le: string | null }
+  | { type: 'entreprise'; id: number; libelle: string; nom_commercial: string | null; siret: string | null; nb_apprentis: number };
+export type Cible = { type: 'apprenti' | 'entreprise'; id: number };

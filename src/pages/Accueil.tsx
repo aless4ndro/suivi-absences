@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { appeler, type AlertesPP, type FiltresEvenements, type Stats } from '../api';
+import { appeler, type AlertesPP, type Cible, type FiltresEvenements, type Stats } from '../api';
+import RechercheGenerale from '../RechercheGenerale';
 
 type Alertes = { a_traiter: number; a_notifier: number };
 
-export default function Accueil({ allerA }: { allerA: (page: string, filtre?: FiltresEvenements) => void }) {
+export default function Accueil({ allerA, ouvrirFiche }: { allerA: (page: string, filtre?: FiltresEvenements) => void; ouvrirFiche: (type: Cible['type'], id: number) => void }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [alertes, setAlertes] = useState<Alertes | null>(null);
   const [pp, setPp] = useState<AlertesPP | null>(null);
@@ -16,6 +17,7 @@ export default function Accueil({ allerA }: { allerA: (page: string, filtre?: Fi
   return (
     <>
       <h1>Accueil</h1>
+      <RechercheGenerale ouvrir={ouvrirFiche} />
 
       {alertes && (
         <div className="cartes">

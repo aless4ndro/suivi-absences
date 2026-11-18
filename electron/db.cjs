@@ -4,7 +4,7 @@ const fs = require('node:fs');
 
 const CALENDRIERS = require('./calendriers-2026-2027.cjs');
 const { creerRattrapages } = require('./rattrapages.cjs');
-const { creerProfesseurs } = require('./professeurs.cjs');
+const { creerProfesseurs, anneeScolaire } = require('./professeurs.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -296,6 +296,11 @@ const MIGRATIONS = [
   INSERT INTO jeune_entreprises (jeune_id, entreprise_id, maitre_nom, maitre_telephone, maitre_email, date_debut)
     SELECT id, entreprise_id, maitre_nom, maitre_telephone, maitre_email, '${ORIGINE}' FROM jeunes;
   `,
+  // v13 : nom commercial et SIRET des entreprises (recherche)
+  `
+  ALTER TABLE entreprises ADD COLUMN nom_commercial TEXT;
+  ALTER TABLE entreprises ADD COLUMN siret TEXT;
+  `,
 ];
 
 // Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
@@ -501,19 +506,55 @@ function ouvrir(chemin) {
 
     'entreprises:list': () =>
       db.prepare(
-        `SELECT e.*, (SELECT COUNT(*) FROM jeunes j WHERE j.entreprise_id = e.id) AS nb_jeunes
+        `SELECT e.*, (SELECT COUNT(*) FROM jeunes j WHERE j.entreprise_id = e.id AND (j.sorti_le IS NULL OR j.sorti_le > ?)) AS nb_jeunes
          FROM entreprises e ORDER BY e.nom COLLATE NOCASE`
-      ).all(),
+      ).all(aujourdhui()),
+
+    // Recherche générale (accueil) : apprentis (y compris sortis, avec leur année) et entreprises, tolérante aux accents,
+    // aux majuscules, à l'ordre nom/prénom et aux fragments de mot.
+    'recherche': ({ q, limite = 12 } = {}) => {
+      const mots = cle(q ?? '').split(' ').filter(Boolean);
+      if (!mots.length) return { resultats: [], total: 0 };
+      const trouve = (texte) => mots.every((m) => texte.includes(m));
+      const rang = (nom, texte) => (cle(nom).startsWith(mots[0]) ? 0 : texte.split(' ').some((w) => w.startsWith(mots[0])) ? 1 : 2);
+      const auj = aujourdhui();
+      const classes = new Map(db.prepare('SELECT id, code FROM classes').all().map((c) => [c.id, c.code]));
+      const res = [];
+      for (const j of db.prepare('SELECT id, nom, prenom, classe_id, sorti_le, sortie_motif FROM jeunes').all()) {
+        const sorti = !!j.sorti_le && j.sorti_le <= auj;
+        const ref = sorti ? ajouterJour(j.sorti_le, -1) : auj;
+        const classe = classes.get(classeDe(j.id, ref)) ?? classes.get(j.classe_id) ?? '';
+        const texte = cle(`${j.nom} ${j.prenom} ${j.prenom} ${j.nom} ${classe}`);
+        if (!trouve(texte)) continue;
+        res.push({ type: 'apprenti', id: j.id, libelle: `${j.prenom} ${j.nom.toUpperCase()}`, classe, annee: anneeScolaire(ref), sorti, sorti_le: sorti ? j.sorti_le : null, rang: rang(`${j.nom} ${j.prenom}`, texte) });
+      }
+      const nb = new Map(db.prepare("SELECT entreprise_id AS e, COUNT(*) AS n FROM jeunes WHERE entreprise_id IS NOT NULL AND (sorti_le IS NULL OR sorti_le > ?) GROUP BY entreprise_id").all(auj).map((r) => [r.e, r.n]));
+      for (const e of db.prepare('SELECT id, nom, nom_commercial, siret FROM entreprises').all()) {
+        const texte = cle(`${e.nom} ${e.nom_commercial ?? ''} ${e.siret ?? ''}`);
+        if (!trouve(texte)) continue;
+        res.push({ type: 'entreprise', id: e.id, libelle: e.nom, nom_commercial: e.nom_commercial, siret: e.siret, nb_apprentis: nb.get(e.id) ?? 0, rang: rang(e.nom, texte) });
+      }
+      res.sort((a, b) => a.rang - b.rang || a.libelle.localeCompare(b.libelle, 'fr', { sensitivity: 'base' }));
+      return { resultats: res.slice(0, Number(limite) || 12), total: res.length };
+    },
 
     'entreprises:save': (e) => {
       const nom = vide(e.nom);
       if (!nom) throw new Error("Le nom de l'entreprise est obligatoire.");
-      const p = [nom, vide(e.adresse), vide(e.telephone), vide(e.email)];
+      // SIRET : 14 chiffres (espaces et points tolérés), unique
+      const brut = vide(e.siret);
+      const siret = brut ? brut.replace(/[\s.]/g, '') : null;
+      if (siret && !/^\d{14}$/.test(siret)) throw new Error('Le SIRET comporte 14 chiffres (ex. 552 081 317 00019).');
+      if (siret) {
+        const autre = db.prepare('SELECT nom FROM entreprises WHERE siret = ? AND id <> ?').get(siret, Number(e.id) || 0);
+        if (autre) throw new Error(`Ce SIRET est déjà celui de « ${autre.nom} » : une seule fiche par entreprise.`);
+      }
+      const p = [nom, vide(e.adresse), vide(e.telephone), vide(e.email), vide(e.nom_commercial), siret];
       if (e.id) {
-        db.prepare('UPDATE entreprises SET nom=?, adresse=?, telephone=?, email=? WHERE id=?').run(...p, e.id);
+        db.prepare('UPDATE entreprises SET nom=?, adresse=?, telephone=?, email=?, nom_commercial=?, siret=? WHERE id=?').run(...p, e.id);
         return e.id;
       }
-      return Number(db.prepare('INSERT INTO entreprises (nom, adresse, telephone, email) VALUES (?,?,?,?)').run(...p).lastInsertRowid);
+      return Number(db.prepare('INSERT INTO entreprises (nom, adresse, telephone, email, nom_commercial, siret) VALUES (?,?,?,?,?,?)').run(...p).lastInsertRowid);
     },
 
     'contacts:list': (entrepriseId) =>

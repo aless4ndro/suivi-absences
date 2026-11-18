@@ -534,3 +534,39 @@ test('bascule de rentrée : passage, redoublement, sorties ; historique entrepri
   assert.strictEqual(par('Reste').maitre_nom, 'M. Anciens');
   db.fermer();
 });
+
+test('recherche : accents, ordre nom/prénom, fragments, SIRET, apprentis sortis avec leur année', () => {
+  const db = ouvrir(':memory:');
+  const classes = db.appeler('classes:list');
+  const mco = classes.find((c) => c.code === 'MCO 1ère année');
+  const ent = db.appeler('entreprises:save', { nom: 'Boulangerie Éléonore SARL', nom_commercial: 'Chez Léo', siret: '552 081 317 00019' });
+  db.appeler('entreprises:save', { nom: 'Garage Martin' }); // aucune apprentie rattachée : retrouvable quand même
+  const a = db.appeler('jeunes:save', { nom: 'Gérard', prenom: 'Hélène', classe_id: mco.id, entreprise_id: ent });
+  const b = db.appeler('jeunes:save', { nom: 'Martin', prenom: 'Hugo', classe_id: mco.id });
+  const quoi = (q) => db.appeler('recherche', { q }).resultats.map((r) => `${r.type}:${r.libelle}`);
+
+  assert.deepStrictEqual(quoi('helene'), ['apprenti:Hélène GÉRARD']); // sans accent ni majuscule
+  assert.deepStrictEqual(quoi('GERARD hel'), ['apprenti:Hélène GÉRARD']); // ordre libre, fragments
+  assert.deepStrictEqual(quoi('mco gerard'), ['apprenti:Hélène GÉRARD']); // classe
+  assert.deepStrictEqual(quoi('martin'), ['apprenti:Hugo MARTIN', 'entreprise:Garage Martin']); // nom commençant par la saisie d'abord
+  assert.deepStrictEqual(quoi('chez leo'), ['entreprise:Boulangerie Éléonore SARL']); // nom commercial
+  assert.deepStrictEqual(quoi('552081'), ['entreprise:Boulangerie Éléonore SARL']); // SIRET partiel
+  assert.deepStrictEqual(quoi('zzz'), []);
+  assert.deepStrictEqual(quoi('   '), []);
+  assert.strictEqual(db.appeler('recherche', { q: 'martin', limite: 1 }).resultats.length, 1);
+
+  // un apprenti sorti reste retrouvable, avec l'année de sa dernière classe
+  db.appeler('jeunes:sortir', { id: b, date: '2026-09-01', motif: 'demission' });
+  const sorti = db.appeler('recherche', { q: 'hugo' }).resultats[0];
+  assert.strictEqual(sorti.sorti, true);
+  assert.strictEqual(sorti.annee, '2025-2026');
+  assert.strictEqual(sorti.classe, 'MCO 1ère année');
+  assert.strictEqual(db.appeler('recherche', { q: 'gerard' }).resultats[0].annee, '2026-2027');
+  assert.strictEqual(db.appeler('recherche', { q: 'eleonore' }).resultats[0].nb_apprentis, 1);
+
+  // SIRET : format et unicité
+  assert.throws(() => db.appeler('entreprises:save', { nom: 'X', siret: '123' }), /14 chiffres/);
+  assert.throws(() => db.appeler('entreprises:save', { nom: 'Doublon', siret: '55208131700019' }), /déjà celui de/);
+  db.appeler('entreprises:save', { id: ent, nom: 'Boulangerie Éléonore SARL', siret: '55208131700019' }); // sa propre fiche : accepté
+  db.fermer();
+});
