@@ -133,3 +133,9 @@ button.petit + button.petit { margin-left: 4px; }
 .autres-adresses { margin: 8px 0; }
 .autres-adresses summary { cursor: pointer; color: var(--accent); font-size: 13px; }
 .nowrap { white-space: nowrap; }
+
+.fenetre.large { width: min(1000px, 100%); }
+.bloc-bascule { margin: 14px 0; padding: 8px 12px; border: 1px solid var(--bord); border-radius: 8px; }
+.bloc-bascule h3 { margin: 6px 0; }
+.bloc-bascule .entete { align-items: center; }
+.bloc-bascule .table-dest td:last-child { width: 280px; }

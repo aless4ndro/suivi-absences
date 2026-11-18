@@ -27,8 +27,11 @@ function sqlCalendriers() {
 
 // Date « depuis toujours » de la première classe d'un apprenti.
 const ORIGINE = '2000-01-01';
+const MOTIFS_SORTIE = ['demission', 'rupture', 'diplome', 'autre'];
 
 // Classe d'un apprenti à une date (expression SQL ; l'alias j doit désigner la table jeunes).
+const contratA = (date) =>
+  `(SELECT je2.id FROM jeune_entreprises je2 WHERE je2.jeune_id = j.id AND je2.date_debut <= ${date} ORDER BY je2.date_debut DESC LIMIT 1)`;
 const classeA = (date) =>
   `COALESCE((SELECT jc.classe_id FROM jeune_classes jc WHERE jc.jeune_id = j.id AND jc.date_debut <= ${date} ORDER BY jc.date_debut DESC LIMIT 1), j.classe_id)`;
 
@@ -272,6 +275,27 @@ const MIGRATIONS = [
   CREATE INDEX jeune_classes_jeune ON jeune_classes (jeune_id, date_debut);
   INSERT INTO jeune_classes (jeune_id, classe_id, date_debut) SELECT id, classe_id, '${ORIGINE}' FROM jeunes;
   `,
+  // v12 : sortie de la formation (démission, rupture, fin de formation), nature des changements de classe
+  // (passage, redoublement) et historique de l'entreprise et du maître d'apprentissage de chaque apprenti.
+  `
+  ALTER TABLE jeunes ADD COLUMN sorti_le TEXT;
+  ALTER TABLE jeunes ADD COLUMN sortie_motif TEXT;
+  ALTER TABLE jeune_classes ADD COLUMN type TEXT;
+  CREATE TABLE jeune_entreprises (
+    id INTEGER PRIMARY KEY,
+    jeune_id INTEGER NOT NULL REFERENCES jeunes(id) ON DELETE CASCADE,
+    entreprise_id INTEGER REFERENCES entreprises(id) ON DELETE SET NULL,
+    maitre_nom TEXT,
+    maitre_telephone TEXT,
+    maitre_email TEXT,
+    date_debut TEXT NOT NULL,
+    note TEXT,
+    UNIQUE (jeune_id, date_debut)
+  );
+  CREATE INDEX jeune_entreprises_jeune ON jeune_entreprises (jeune_id, date_debut);
+  INSERT INTO jeune_entreprises (jeune_id, entreprise_id, maitre_nom, maitre_telephone, maitre_email, date_debut)
+    SELECT id, entreprise_id, maitre_nom, maitre_telephone, maitre_email, '${ORIGINE}' FROM jeunes;
+  `,
 ];
 
 // Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
@@ -355,31 +379,65 @@ function ouvrir(chemin) {
     return r ? r.c : null;
   };
   // La classe « actuelle » (affichage, effectifs) suit l'historique : un passage programmé s'applique le jour venu.
-  const synchroniserClasses = () => {
-    db.prepare(`UPDATE jeunes AS j SET classe_id = ${classeA('?')} WHERE classe_id <> ${classeA('?')}`).run(aujourdhui(), aujourdhui());
+  const synchroniser = () => {
+    const a = aujourdhui();
+    db.prepare(`UPDATE jeunes AS j SET classe_id = ${classeA('?')} WHERE classe_id <> ${classeA('?')}`).run(a, a);
+    // entreprise et maître d'apprentissage « actuels » = ceux de l'historique à la date du jour
+    const sel = (col) => `(SELECT je.${col} FROM jeune_entreprises je WHERE je.jeune_id = jeunes.id AND je.date_debut <= ? ORDER BY je.date_debut DESC LIMIT 1)`;
+    db.prepare(
+      `UPDATE jeunes SET entreprise_id = ${sel('entreprise_id')}, maitre_nom = ${sel('maitre_nom')},
+       maitre_telephone = ${sel('maitre_telephone')}, maitre_email = ${sel('maitre_email')}`
+    ).run(a, a, a, a);
   };
-  synchroniserClasses();
+
+  // Entreprise et maître d'apprentissage d'un apprenti à une date.
+  const contratDe = (jeuneId, date) => db.prepare(
+    'SELECT * FROM jeune_entreprises WHERE jeune_id = ? AND date_debut <= ? ORDER BY date_debut DESC LIMIT 1'
+  ).get(Number(jeuneId), dateValide(date) ? date : aujourdhui());
+  const memeContrat = (a, b) => (a?.entreprise_id ?? null) === (b?.entreprise_id ?? null)
+    && (a?.maitre_nom ?? null) === (b?.maitre_nom ?? null)
+    && (a?.maitre_telephone ?? null) === (b?.maitre_telephone ?? null)
+    && (a?.maitre_email ?? null) === (b?.maitre_email ?? null);
+
+  function changerContrat(jeuneId, v, date, note) {
+    if (!dateValide(date)) throw new Error("Date de changement d'entreprise invalide.");
+    const avant = contratDe(jeuneId, ajouterJour(date, -1));
+    db.prepare(
+      `INSERT INTO jeune_entreprises (jeune_id, entreprise_id, maitre_nom, maitre_telephone, maitre_email, date_debut, note)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(jeune_id, date_debut) DO UPDATE SET entreprise_id = excluded.entreprise_id, maitre_nom = excluded.maitre_nom,
+         maitre_telephone = excluded.maitre_telephone, maitre_email = excluded.maitre_email, note = excluded.note`
+    ).run(Number(jeuneId), v.entreprise_id, v.maitre_nom, v.maitre_telephone, v.maitre_email, date, vide(note));
+    // ligne devenue inutile : identique à la période précédente
+    if (date !== ORIGINE && avant && memeContrat(avant, v)) {
+      db.prepare('DELETE FROM jeune_entreprises WHERE jeune_id = ? AND date_debut = ?').run(Number(jeuneId), date);
+    }
+  }
+  synchroniser();
 
   // Place un apprenti dans une classe à partir d'une date (remplace un éventuel changement prévu le même jour).
-  function changerClasse(jeuneId, classeId, date, note) {
+  function changerClasse(jeuneId, classeId, date, note, type = 'changement') {
     if (!dateValide(date)) throw new Error('Date de changement de classe invalide.');
     if (!db.prepare('SELECT 1 FROM classes WHERE id = ?').get(Number(classeId))) throw new Error('Classe introuvable.');
     const avant = classeDe(jeuneId, ajouterJour(date, -1));
     db.prepare(
-      `INSERT INTO jeune_classes (jeune_id, classe_id, date_debut, note) VALUES (?,?,?,?)
-       ON CONFLICT(jeune_id, date_debut) DO UPDATE SET classe_id = excluded.classe_id, note = excluded.note`
-    ).run(Number(jeuneId), Number(classeId), date, vide(note));
+      `INSERT INTO jeune_classes (jeune_id, classe_id, date_debut, note, type) VALUES (?,?,?,?,?)
+       ON CONFLICT(jeune_id, date_debut) DO UPDATE SET classe_id = excluded.classe_id, note = excluded.note, type = excluded.type`
+    ).run(Number(jeuneId), Number(classeId), date, vide(note), type);
     // ligne devenue inutile (même classe que la période précédente)
     if (avant === Number(classeId) && date !== ORIGINE) db.prepare('DELETE FROM jeune_classes WHERE jeune_id = ? AND date_debut = ?').run(Number(jeuneId), date);
   }
 
   function destinatairesDe(jeuneId, date) {
-    const j = db.prepare(
-      `SELECT j.classe_id, j.maitre_nom, j.maitre_telephone, j.maitre_email, j.entreprise_id, e.nom AS entreprise_nom,
-              e.telephone AS entreprise_telephone, e.email AS entreprise_email
-       FROM jeunes j LEFT JOIN entreprises e ON e.id = j.entreprise_id WHERE j.id = ?`
-    ).get(jeuneId);
-    if (!j) return [];
+    const base = db.prepare('SELECT classe_id FROM jeunes WHERE id = ?').get(jeuneId);
+    if (!base) return [];
+    // entreprise et maître d'apprentissage de l'époque (un apprenti a pu changer d'employeur depuis)
+    const ct = contratDe(jeuneId, date) ?? {};
+    const ent = ct.entreprise_id ? db.prepare('SELECT nom, telephone, email FROM entreprises WHERE id = ?').get(ct.entreprise_id) : null;
+    const j = {
+      classe_id: base.classe_id, maitre_nom: ct.maitre_nom, maitre_telephone: ct.maitre_telephone, maitre_email: ct.maitre_email,
+      entreprise_id: ct.entreprise_id, entreprise_nom: ent?.nom, entreprise_telephone: ent?.telephone, entreprise_email: ent?.email,
+    };
     const liste = [];
     if (j.maitre_email) liste.push({ cle: 'maitre', libelle: `Maître d'apprentissage${j.maitre_nom ? ` : ${j.maitre_nom}` : ''}`, email: j.maitre_email, telephone: j.maitre_telephone });
     if (j.entreprise_email) liste.push({ cle: 'entreprise', libelle: `Entreprise : ${j.entreprise_nom}`, email: j.entreprise_email, telephone: j.entreprise_telephone });
@@ -536,10 +594,11 @@ function ouvrir(chemin) {
       return true;
     },
 
-    'jeunes:list': () => {
-      synchroniserClasses();
+    // Par défaut : apprentis encore en formation. { tous: true } ajoute ceux qui sont sortis (champ « sorti »).
+    'jeunes:list': (f = {}) => {
+      synchroniser();
       const prevus = db.prepare(
-        `SELECT jc.jeune_id, jc.date_debut, c.code FROM jeune_classes jc JOIN classes c ON c.id = jc.classe_id
+        `SELECT jc.jeune_id, jc.date_debut, jc.type, c.code FROM jeune_classes jc JOIN classes c ON c.id = jc.classe_id
          WHERE jc.date_debut > ? ORDER BY jc.date_debut`
       ).all(aujourdhui());
       return db.prepare(
@@ -551,8 +610,8 @@ function ouvrir(chemin) {
          ORDER BY c.ordre, j.nom COLLATE NOCASE, j.prenom COLLATE NOCASE`
       ).all().map((j) => {
         const p = prevus.find((x) => x.jeune_id === j.id);
-        return { ...j, passage_prevu: p ? { date: p.date_debut, classe_code: p.code } : null };
-      });
+        return { ...j, sorti: !!j.sorti_le && j.sorti_le <= aujourdhui(), passage_prevu: p ? { date: p.date_debut, classe_code: p.code, type: p.type } : null };
+      }).filter((j) => f?.tous || !j.sorti);
     },
 
     // Historique des classes d'un apprenti (la plus récente d'abord).
@@ -569,8 +628,77 @@ function ouvrir(chemin) {
       const n = db.prepare('SELECT COUNT(*) AS n FROM jeune_classes WHERE jeune_id = ?').get(l.jeune_id).n;
       if (n <= 1) throw new Error("C'est la seule classe de cet apprenti : modifiez-la plutôt.");
       db.prepare('DELETE FROM jeune_classes WHERE id = ?').run(l.id);
-      synchroniserClasses();
+      synchroniser();
       return true;
+    },
+
+    // Historique de l'entreprise et du maître d'apprentissage (le plus récent d'abord).
+    'jeunes:contrats': (id) =>
+      db.prepare(
+        `SELECT je.*, e.nom AS entreprise_nom FROM jeune_entreprises je LEFT JOIN entreprises e ON e.id = je.entreprise_id
+         WHERE je.jeune_id = ? ORDER BY je.date_debut DESC`
+      ).all(Number(id)),
+
+    'jeunes:contrat:supprimer': (id) => {
+      const l = db.prepare('SELECT * FROM jeune_entreprises WHERE id = ?').get(Number(id));
+      if (!l) return true;
+      if (db.prepare('SELECT COUNT(*) AS n FROM jeune_entreprises WHERE jeune_id = ?').get(l.jeune_id).n <= 1) {
+        throw new Error("C'est la seule entreprise de cet apprenti : modifiez-la plutôt.");
+      }
+      db.prepare('DELETE FROM jeune_entreprises WHERE id = ?').run(l.id);
+      synchroniser();
+      return true;
+    },
+
+    // Sortie de la formation : l'apprenti disparaît des listes à partir de cette date, tout son historique est conservé.
+    'jeunes:sortir': ({ id, date, motif }) => {
+      if (!dateValide(date)) throw new Error('Date de sortie invalide.');
+      if (!MOTIFS_SORTIE.includes(motif)) throw new Error('Choisissez le motif de sortie.');
+      if (!db.prepare('SELECT 1 FROM jeunes WHERE id = ?').get(Number(id))) throw new Error('Apprenti introuvable.');
+      db.prepare('UPDATE jeunes SET sorti_le = ?, sortie_motif = ? WHERE id = ?').run(date, motif, Number(id));
+      return true;
+    },
+
+    'jeunes:reintegrer': (id) => {
+      db.prepare('UPDATE jeunes SET sorti_le = NULL, sortie_motif = NULL WHERE id = ?').run(Number(id));
+      return true;
+    },
+
+    // Bascule de rentrée : pour chaque apprenti, passage en classe suivante, redoublement ou sortie, à une même date.
+    // decisions : [{ id, action: 'passe' | 'redouble' | 'sort' | 'reste', classe_id?, motif? }]
+    'jeunes:bascule': ({ date, decisions }) => {
+      if (!dateValide(date)) throw new Error('Date de bascule invalide.');
+      const bilan = { passe: 0, redouble: 0, sort: 0, reste: 0 };
+      db.exec('BEGIN');
+      try {
+        for (const d of decisions ?? []) {
+          const j = db.prepare('SELECT id, nom, prenom FROM jeunes WHERE id = ?').get(Number(d.id));
+          if (!j) throw new Error('Apprenti introuvable.');
+          const nom = `${j.prenom} ${j.nom}`;
+          const actuelle = classeDe(j.id, ajouterJour(date, -1));
+          if (d.action === 'passe') {
+            if (!d.classe_id) throw new Error(`${nom} : choisissez la nouvelle classe.`);
+            if (Number(d.classe_id) === actuelle) throw new Error(`${nom} : la nouvelle classe est la même qu'actuellement (utilisez « Redouble »).`);
+            changerClasse(j.id, d.classe_id, date, 'Passage de classe', 'passage');
+          } else if (d.action === 'redouble') {
+            changerClasse(j.id, actuelle, date, 'Redoublement', 'redoublement');
+            // changerClasse retire la ligne si la classe ne change pas : on la rétablit pour garder la trace du redoublement
+            db.prepare(
+              `INSERT INTO jeune_classes (jeune_id, classe_id, date_debut, note, type) VALUES (?,?,?,?,?)
+               ON CONFLICT(jeune_id, date_debut) DO UPDATE SET type = 'redoublement', note = 'Redoublement'`
+            ).run(j.id, actuelle, date, 'Redoublement', 'redoublement');
+          } else if (d.action === 'sort') {
+            if (!MOTIFS_SORTIE.includes(d.motif)) throw new Error(`${nom} : choisissez le motif de sortie.`);
+            db.prepare('UPDATE jeunes SET sorti_le = ?, sortie_motif = ? WHERE id = ?').run(date, d.motif, j.id);
+          } else if (d.action !== 'reste') {
+            throw new Error(`${nom} : choix inconnu.`);
+          }
+          bilan[d.action]++;
+        }
+        db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
+      synchroniser();
+      return bilan;
     },
 
     // Passage de plusieurs apprentis dans une nouvelle classe à une date (rentrée, réorientation).
@@ -582,7 +710,7 @@ function ouvrir(chemin) {
         for (const id of liste) changerClasse(id, classe_id, date, 'Passage de classe');
         db.exec('COMMIT');
       } catch (e) { db.exec('ROLLBACK'); throw e; }
-      synchroniserClasses();
+      synchroniser();
       return liste.length;
     },
 
@@ -608,6 +736,16 @@ function ouvrir(chemin) {
             `UPDATE jeunes SET nom=?, prenom=?, email=?, telephone=?, classe_id=?, entreprise_id=?,
              maitre_nom=?, maitre_telephone=?, maitre_email=?, civilite=?, adresse=?, code_postal=?, ville=? WHERE id=?`
           ).run(...p, j.id);
+          const nouveau = { entreprise_id: p[5], maitre_nom: p[6], maitre_telephone: p[7], maitre_email: p[8] };
+          const ancien = contratDe(j.id, aujourdhui());
+          if (!memeContrat(ancien, nouveau)) {
+            if (j.contrat_correction && ancien) {
+              db.prepare('UPDATE jeune_entreprises SET entreprise_id=?, maitre_nom=?, maitre_telephone=?, maitre_email=? WHERE id=?')
+                .run(nouveau.entreprise_id, nouveau.maitre_nom, nouveau.maitre_telephone, nouveau.maitre_email, ancien.id);
+            } else {
+              changerContrat(j.id, nouveau, j.contrat_depuis || aujourdhui(), j.contrat_note);
+            }
+          }
           if (actuelle !== Number(j.classe_id)) {
             if (j.classe_correction) {
               // erreur de saisie : la classe est corrigée sur toute la période en cours
@@ -620,7 +758,7 @@ function ouvrir(chemin) {
           }
           db.exec('COMMIT');
         } catch (e) { db.exec('ROLLBACK'); throw e; }
-        synchroniserClasses();
+        synchroniser();
         return j.id;
       }
       const id = Number(
@@ -630,6 +768,8 @@ function ouvrir(chemin) {
         ).run(...p).lastInsertRowid
       );
       db.prepare('INSERT INTO jeune_classes (jeune_id, classe_id, date_debut) VALUES (?,?,?)').run(id, Number(j.classe_id), ORIGINE);
+      db.prepare('INSERT INTO jeune_entreprises (jeune_id, entreprise_id, maitre_nom, maitre_telephone, maitre_email, date_debut) VALUES (?,?,?,?,?,?)')
+        .run(id, p[5], p[6], p[7], p[8], ORIGINE);
       return id;
     },
 
@@ -660,7 +800,8 @@ function ouvrir(chemin) {
          FROM evenements e
          JOIN jeunes j ON j.id = e.jeune_id
          JOIN classes c ON c.id = ${classeA('e.date_debut')}
-         LEFT JOIN entreprises en ON en.id = j.entreprise_id
+         LEFT JOIN jeune_entreprises je ON je.id = ${contratA('e.date_debut')}
+         LEFT JOIN entreprises en ON en.id = je.entreprise_id
          LEFT JOIN motifs m ON m.id = e.motif_id
          ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
          ORDER BY e.date_debut DESC, e.id DESC`
@@ -694,6 +835,10 @@ function ouvrir(chemin) {
         if (d <= 0) throw new Error(`${n}l'heure de fin doit être après l'heure de début.`);
         return { date: c.date, heure_debut: c.heure_debut, heure_fin: c.heure_fin, duree_minutes: d };
       }).sort((x, y) => (x.date + x.heure_debut).localeCompare(y.date + y.heure_debut));
+
+      const sortie = db.prepare('SELECT sorti_le FROM jeunes WHERE id = ?').get(Number(e.jeune_id)).sorti_le;
+      const apres = sortie && cr.find((c) => c.date >= sortie);
+      if (apres) throw new Error(`Cet apprenti est sorti de la formation le ${jourMois(sortie)} : impossible d'enregistrer une absence ou un retard le ${jourMois(apres.date)}. S'il est revenu, réintégrez-le dans « Apprentis ».`);
 
       const chevauche = (x, y) => x.date === y.date && x.heure_debut < y.heure_fin && y.heure_debut < x.heure_fin;
       for (let k = 1; k < cr.length; k++) {
@@ -769,12 +914,13 @@ function ouvrir(chemin) {
     'evenements:detail': (id) => {
       const r = db.prepare(
         `SELECT e.*, j.nom AS jeune_nom, j.prenom AS jeune_prenom, c.code AS classe_code,
-                j.maitre_nom, j.maitre_email, en.email AS entreprise_email,
+                je.maitre_nom, je.maitre_email, en.email AS entreprise_email,
                 m.libelle AS motif_libelle, m.statut AS motif_statut
          FROM evenements e
          JOIN jeunes j ON j.id = e.jeune_id
          JOIN classes c ON c.id = ${classeA('e.date_debut')}
-         LEFT JOIN entreprises en ON en.id = j.entreprise_id
+         LEFT JOIN jeune_entreprises je ON je.id = ${contratA('e.date_debut')}
+         LEFT JOIN entreprises en ON en.id = je.entreprise_id
          LEFT JOIN motifs m ON m.id = e.motif_id
          WHERE e.id = ?`
       ).get(Number(id));
@@ -813,11 +959,12 @@ function ouvrir(chemin) {
       return true;
     },
 
-    'stats': () => (synchroniserClasses(), {
+    'stats': () => (synchroniser(), {
       classes: db.prepare(
         `SELECT c.id, c.code, c.libelle, COUNT(j.id) AS nb_jeunes
-         FROM classes c LEFT JOIN jeunes j ON j.classe_id = c.id GROUP BY c.id ORDER BY c.ordre, c.id`
-      ).all(),
+         FROM classes c LEFT JOIN jeunes j ON j.classe_id = c.id AND (j.sorti_le IS NULL OR j.sorti_le > ?)
+         GROUP BY c.id ORDER BY c.ordre, c.id`
+      ).all(aujourdhui()),
       nb_entreprises: db.prepare('SELECT COUNT(*) AS n FROM entreprises').get().n,
     }),
   };

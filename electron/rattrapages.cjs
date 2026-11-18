@@ -119,7 +119,8 @@ function creerRattrapages(db, h) {
       const auj = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const ref = fin && fin < auj ? fin : auj;
       if (f.classe_id) { w.push(`${classeA('?')} = ?`); p.push(ref, Number(f.classe_id)); }
-      if (f.jeune_id) { w.push('j.id = ?'); p.push(Number(f.jeune_id)); }
+      if (f.jeune_id) w.push('j.id = ?'), p.push(Number(f.jeune_id));
+      else if (!f.avec_sortis) { w.push('(j.sorti_le IS NULL OR j.sorti_le > ?)'); p.push(ref); } // sortis exclus à partir de leur départ
       let jeunes = db.prepare(
         `SELECT j.id, j.nom, j.prenom, c.id AS classe_id, c.code AS classe_code
          FROM jeunes j JOIN classes c ON c.id = ${classeA('?')} ${w.length ? `WHERE ${w.join(' AND ')}` : ''}

@@ -74,7 +74,7 @@ export default function Rattrapages() {
 
   useEffect(() => {
     appeler<Classe[]>('classes:list').then(setClasses);
-    appeler<Jeune[]>('jeunes:list').then(setJeunes);
+    appeler<Jeune[]>('jeunes:list', { tous: true }).then(setJeunes);
   }, []);
   useEffect(() => { charger(); }, [periode, classeId, recherche]);
 

@@ -9,8 +9,10 @@ export type Jeune = {
   civilite?: string | null; adresse?: string | null; code_postal?: string | null; ville?: string | null;
   maitre_nom: string | null; maitre_telephone: string | null; maitre_email: string | null;
   classe_code?: string; entreprise_nom?: string | null;
-  passage_prevu?: { date: string; classe_code: string } | null;
+  passage_prevu?: { date: string; classe_code: string; type?: string | null } | null;
   classe_depuis?: string; classe_correction?: boolean;
+  contrat_depuis?: string; contrat_correction?: boolean;
+  sorti?: boolean; sorti_le?: string | null; sortie_motif?: string | null;
   entreprise_telephone?: string | null; entreprise_email?: string | null;
 };
 export type Stats = {
@@ -176,4 +178,11 @@ export type DonneesDocument = {
   seances: Seance[]; periode_debut: string | null; periode_fin: string | null; dues: number; solde_avant: number; etablissement: Etablissement;
 };
 
-export type LigneClasse = { id: number; jeune_id: number; classe_id: number; date_debut: string; note: string | null; classe_code: string };
+export type LigneClasse = { id: number; jeune_id: number; classe_id: number; date_debut: string; note: string | null; type: string | null; classe_code: string };
+export type LigneContrat = {
+  id: number; jeune_id: number; entreprise_id: number | null; entreprise_nom: string | null; maitre_nom: string | null;
+  maitre_telephone: string | null; maitre_email: string | null; date_debut: string; note: string | null;
+};
+export const MOTIFS_SORTIE: Record<string, string> = {
+  demission: 'Démission / abandon', rupture: 'Rupture du contrat', diplome: 'Fin de formation (diplômé)', autre: 'Autre sortie',
+};

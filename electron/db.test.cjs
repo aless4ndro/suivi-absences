@@ -472,3 +472,65 @@ test('passage de classe : les absences passées restent dans l\'ancienne classe,
   assert.strictEqual(db.appeler('jeunes:list')[0].classe_code, 'MCO 2ème année');
   db.fermer();
 });
+
+test('bascule de rentrée : passage, redoublement, sorties ; historique entreprise et maître conservé', () => {
+  const db = ouvrir(':memory:');
+  const classes = db.appeler('classes:list');
+  const g1 = classes.find((c) => c.code === 'GPME 1ère année');
+  const g2 = classes.find((c) => c.code === 'GPME 2ème année');
+  const irrec = db.appeler('motifs:list').find((m) => m.statut === 'irrecevable').id;
+  const e1 = db.appeler('entreprises:save', { nom: 'Ancienne SA', email: 'rh@ancienne.fr' });
+  const e2 = db.appeler('entreprises:save', { nom: 'Nouvelle SARL', email: 'rh@nouvelle.fr' });
+
+  const mk = (nom) => db.appeler('jeunes:save', { nom, prenom: 'X', classe_id: g1.id, entreprise_id: e1, maitre_nom: 'M. Ancien', maitre_email: 'ancien@ancienne.fr' });
+  const passe = mk('Passe'); const redouble = mk('Redouble'); const demissionne = mk('Demissionne'); const reste = mk('Reste');
+  db.appeler('evenements:save', { jeune_id: demissionne, type: 'absence', motif_id: irrec, creneaux: [{ date: '2026-06-10', heure_debut: '08:30', heure_fin: '12:30' }] });
+
+  const bilan = db.appeler('jeunes:bascule', {
+    date: '2026-09-01',
+    decisions: [
+      { id: passe, action: 'passe', classe_id: g2.id },
+      { id: redouble, action: 'redouble' },
+      { id: demissionne, action: 'sort', motif: 'demission' },
+      { id: reste, action: 'reste' },
+    ],
+  });
+  assert.deepStrictEqual(bilan, { passe: 1, redouble: 1, sort: 1, reste: 1 });
+  const par = (n) => db.appeler('jeunes:list', { tous: true }).find((j) => j.nom === n);
+  assert.strictEqual(par('Passe').classe_code, 'GPME 2ème année');
+  assert.strictEqual(par('Redouble').classe_code, 'GPME 1ère année');
+  assert.strictEqual(db.appeler('jeunes:classes', redouble).find((l) => l.type === 'redoublement').date_debut, '2026-09-01');
+  assert.ok(par('Demissionne').sorti);
+
+  // le sorti disparaît des listes, des effectifs et du bilan, mais pas de l'historique
+  assert.ok(!db.appeler('jeunes:list').some((j) => j.nom === 'Demissionne'));
+  assert.strictEqual(db.appeler('stats').classes.find((c) => c.id === g1.id).nb_jeunes, 2);
+  assert.ok(!db.appeler('rattrapages:bilan', { debut: '2026-09-01', fin: '2026-09-30' }).apprentis.some((a) => a.nom === 'Demissionne'));
+  assert.ok(db.appeler('rattrapages:bilan', { debut: '2026-06-01', fin: '2026-06-30' }).apprentis.some((a) => a.nom === 'Demissionne'));
+  assert.strictEqual(db.appeler('evenements:list', { jeune_id: demissionne }).length, 1);
+  assert.throws(() => db.appeler('evenements:save', { jeune_id: demissionne, type: 'absence', creneaux: [{ date: '2026-10-01', heure_debut: '08:30', heure_fin: '12:30' }] }), /sorti de la formation/);
+  db.appeler('jeunes:reintegrer', demissionne);
+  assert.ok(db.appeler('jeunes:list').some((j) => j.nom === 'Demissionne'));
+  assert.throws(() => db.appeler('jeunes:bascule', { date: '2026-09-01', decisions: [{ id: passe, action: 'sort', motif: 'inconnu' }] }), /motif/);
+
+  // changement d'employeur au 1er janvier 2027 : les absences passées gardent l'ancien maître
+  db.appeler('evenements:save', { jeune_id: passe, type: 'absence', motif_id: irrec, creneaux: [{ date: '2026-11-10', heure_debut: '08:30', heure_fin: '12:30' }] });
+  const j = par('Passe');
+  db.appeler('jeunes:save', { ...j, entreprise_id: e2, maitre_nom: 'Mme Nouvelle', maitre_email: 'nouvelle@nouvelle.fr', contrat_depuis: '2027-01-01' });
+  assert.strictEqual(par('Passe').maitre_nom, 'M. Ancien'); // pas encore en vigueur
+  db.appeler('evenements:save', { jeune_id: passe, type: 'retard', motif_id: irrec, creneaux: [{ date: '2027-02-02', heure_debut: '08:30', heure_fin: '09:00' }] });
+  const evts = db.appeler('evenements:list', { jeune_id: passe });
+  assert.strictEqual(evts.find((e) => e.type === 'absence').entreprise_nom, 'Ancienne SA');
+  assert.strictEqual(evts.find((e) => e.type === 'retard').entreprise_nom, 'Nouvelle SARL');
+  const vieux = db.appeler('evenements:detail', evts.find((e) => e.type === 'absence').id);
+  assert.strictEqual(vieux.maitre_email, 'ancien@ancienne.fr');
+  assert.ok(vieux.destinataires.some((d) => d.email === 'rh@ancienne.fr') && !vieux.destinataires.some((d) => d.email === 'rh@nouvelle.fr'));
+  assert.ok(db.appeler('destinataires:list', { jeune_id: passe, date: '2027-02-02' }).some((d) => d.email === 'nouvelle@nouvelle.fr'));
+  assert.strictEqual(db.appeler('jeunes:contrats', passe).length, 2);
+
+  // correction d'une faute de frappe : pas de nouvelle ligne
+  db.appeler('jeunes:save', { ...par('Reste'), maitre_nom: 'M. Anciens', contrat_correction: true });
+  assert.strictEqual(db.appeler('jeunes:contrats', reste).length, 1);
+  assert.strictEqual(par('Reste').maitre_nom, 'M. Anciens');
+  db.fermer();
+});

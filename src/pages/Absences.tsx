@@ -56,7 +56,7 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
   const charger = () => appeler<Evenement[]>('evenements:list', filtres).then(setListe);
   useEffect(() => {
     appeler<Classe[]>('classes:list').then(setClasses);
-    appeler<Jeune[]>('jeunes:list').then(setApprentis);
+    appeler<Jeune[]>('jeunes:list', { tous: true }).then(setApprentis);
     appeler<Motif[]>('motifs:list').then(setMotifs);
     appeler<Horaires>('horaires:get').then(setHorairesDefaut);
   }, []);
@@ -328,14 +328,14 @@ export default function Absences({ filtreInitial }: { filtreInitial?: FiltresEve
       {fiche && (
         <form className="fiche" onSubmit={enregistrer}>
           <h2>{fiche.id ? 'Modifier' : 'Nouvelle absence ou nouveau retard'}</h2>
-          {apprentis.length === 0 && <p className="erreur">Ajoutez d'abord un apprenti dans la section Apprentis.</p>}
+          {apprentis.filter((a) => !a.sorti).length === 0 && <p className="erreur">Ajoutez d'abord un apprenti dans la section Apprentis.</p>}
           <div className="grille">
             <label>Apprenti *
               <select required value={fiche.jeune_id || ''} onChange={(e) => setFiche({ ...fiche, jeune_id: Number(e.target.value) })}>
                 <option value="" disabled>Choisir…</option>
                 {classes.map((c) => (
                   <optgroup key={c.id} label={c.code}>
-                    {apprentis.filter((a) => a.classe_id === c.id).map((a) => <option key={a.id} value={a.id}>{a.nom} {a.prenom}</option>)}
+                    {apprentis.filter((a) => a.classe_id === c.id && !a.sorti).map((a) => <option key={a.id} value={a.id}>{a.nom} {a.prenom}</option>)}
                   </optgroup>
                 ))}
               </select>
