@@ -288,6 +288,41 @@ function creerRattrapages(db, h) {
       return true;
     },
 
+    // Tableau de bord d'assiduité d'un apprenti sur une période : absences et retards (justifiés / injustifiés / en attente de motif),
+    // historique détaillé et situation des heures de rattrapage. Mêmes règles que les récapitulatifs : un événement compte dans la période de sa date de début.
+    'jeunes:assiduite': ({ id, debut, fin }) => {
+      if (!dateValide(debut) || !dateValide(fin) || fin < debut) throw new Error('Période invalide.');
+      const jeuneId = Number(id);
+      const j = db.prepare('SELECT id, nom, prenom, sorti_le FROM jeunes WHERE id = ?').get(jeuneId);
+      if (!j) throw new Error('Apprenti introuvable.');
+      const auj = maintenant().slice(0, 10);
+      const ref = fin < auj ? fin : auj;
+      const classe = db.prepare(`SELECT c.code, c.libelle FROM jeunes j JOIN classes c ON c.id = ${classeA('?')} WHERE j.id = ?`).get(ref, jeuneId);
+      const evts = db.prepare(
+        `SELECT e.id, e.type, e.date_debut, e.date_fin, e.duree_minutes, e.observations, e.notifie_le, m.libelle AS motif_libelle, m.statut AS motif_statut,
+                (SELECT COUNT(*) FROM pieces_jointes pj WHERE pj.evenement_id = e.id) AS nb_pieces
+         FROM evenements e LEFT JOIN motifs m ON m.id = e.motif_id
+         WHERE e.jeune_id = ? AND e.date_debut >= ? AND e.date_debut <= ? ORDER BY e.date_debut DESC, e.id DESC`
+      ).all(jeuneId, debut, fin);
+      const totaux = (type) => {
+        const l = evts.filter((e) => e.type === type);
+        const somme = (liste) => ({ nb: liste.length, minutes: liste.reduce((t, e) => t + (e.duree_minutes ?? 0), 0) });
+        return {
+          ...somme(l),
+          justifiees: somme(l.filter((e) => e.motif_statut === 'recevable')),
+          injustifiees: somme(l.filter((e) => e.motif_statut === 'irrecevable')),
+          en_attente: somme(l.filter((e) => !e.motif_statut)),
+        };
+      };
+      const c = compteur(jeuneId, debut, fin);
+      return {
+        jeune: { id: j.id, nom: j.nom, prenom: j.prenom, classe: classe?.code ?? '', classe_libelle: classe?.libelle ?? '' },
+        debut, fin, absences: totaux('absence'), retards: totaux('retard'), evenements: evts,
+        rattrapage: { dues: c.dues, validees: c.validees, programmees: c.programmees, solde: c.solde },
+        etablissement: actions['etablissement:get'](),
+      };
+    },
+
     'rattrapages:historique': (jeuneId) =>
       db.prepare('SELECT * FROM rattrapage_historique WHERE jeune_id = ? ORDER BY id DESC LIMIT 300').all(Number(jeuneId)),
 

@@ -301,6 +301,16 @@ const MIGRATIONS = [
   ALTER TABLE entreprises ADD COLUMN nom_commercial TEXT;
   ALTER TABLE entreprises ADD COLUMN siret TEXT;
   `,
+  // v14 : dates du contrat d'apprentissage (début, fin prévue, rupture) sur chaque période entreprise/maître, et photo des apprentis
+  `
+  ALTER TABLE jeune_entreprises ADD COLUMN contrat_debut TEXT;
+  ALTER TABLE jeune_entreprises ADD COLUMN contrat_fin TEXT;
+  ALTER TABLE jeune_entreprises ADD COLUMN rupture_le TEXT;
+  CREATE TABLE jeune_photos (
+    jeune_id INTEGER PRIMARY KEY REFERENCES jeunes(id) ON DELETE CASCADE,
+    donnees TEXT NOT NULL
+  );
+  `,
 ];
 
 // Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
@@ -404,15 +414,41 @@ function ouvrir(chemin) {
     && (a?.maitre_telephone ?? null) === (b?.maitre_telephone ?? null)
     && (a?.maitre_email ?? null) === (b?.maitre_email ?? null);
 
+  // Dates du contrat saisies sur la fiche : [début, fin prévue, rupture], contrôlées.
+  function datesContrat(j) {
+    const [d, f, r] = [vide(j.contrat_debut), vide(j.contrat_fin), vide(j.rupture_le)];
+    for (const [v, nom] of [[d, 'de début'], [f, 'de fin'], [r, 'de rupture']]) {
+      if (v && !dateValide(v)) throw new Error(`Date ${nom} du contrat invalide.`);
+    }
+    if (d && f && f < d) throw new Error('La fin du contrat est avant son début.');
+    if (d && r && r < d) throw new Error('La rupture du contrat est avant son début.');
+    return [d, f, r];
+  }
+
+  // Statut d'une période de contrat : en_cours, a_venir, termine ou rompu.
+  // row : ligne de jeune_entreprises ; suivante : la ligne suivante du même apprenti (changement d'employeur) ; jeune : sorti_le / sortie_motif.
+  function statutContrat(row, suivante, jeune, auj) {
+    const debut = row.contrat_debut || (row.date_debut !== ORIGINE ? row.date_debut : null);
+    const sortiEffectif = !suivante && jeune.sorti_le && jeune.sorti_le <= auj;
+    const fin = row.rupture_le || row.contrat_fin || (suivante ? ajouterJour(suivante.date_debut, -1) : null) || (sortiEffectif ? ajouterJour(jeune.sorti_le, -1) : null);
+    let statut = 'en_cours';
+    if (row.rupture_le && row.rupture_le <= auj) statut = 'rompu';
+    else if (suivante && suivante.date_debut <= auj) statut = 'termine';
+    else if (sortiEffectif) statut = ['rupture', 'demission'].includes(jeune.sortie_motif) ? 'rompu' : 'termine';
+    else if (debut && debut > auj) statut = 'a_venir';
+    else if (row.contrat_fin && row.contrat_fin < auj) statut = 'termine';
+    return { statut, debut, fin };
+  }
+
   function changerContrat(jeuneId, v, date, note) {
     if (!dateValide(date)) throw new Error("Date de changement d'entreprise invalide.");
     const avant = contratDe(jeuneId, ajouterJour(date, -1));
     db.prepare(
-      `INSERT INTO jeune_entreprises (jeune_id, entreprise_id, maitre_nom, maitre_telephone, maitre_email, date_debut, note)
-       VALUES (?,?,?,?,?,?,?)
+      `INSERT INTO jeune_entreprises (jeune_id, entreprise_id, maitre_nom, maitre_telephone, maitre_email, date_debut, note, contrat_debut)
+       VALUES (?,?,?,?,?,?,?,?)
        ON CONFLICT(jeune_id, date_debut) DO UPDATE SET entreprise_id = excluded.entreprise_id, maitre_nom = excluded.maitre_nom,
          maitre_telephone = excluded.maitre_telephone, maitre_email = excluded.maitre_email, note = excluded.note`
-    ).run(Number(jeuneId), v.entreprise_id, v.maitre_nom, v.maitre_telephone, v.maitre_email, date, vide(note));
+    ).run(Number(jeuneId), v.entreprise_id, v.maitre_nom, v.maitre_telephone, v.maitre_email, date, vide(note), date === ORIGINE ? null : date);
     // ligne devenue inutile : identique à la période précédente
     if (date !== ORIGINE && avant && memeContrat(avant, v)) {
       db.prepare('DELETE FROM jeune_entreprises WHERE jeune_id = ? AND date_debut = ?').run(Number(jeuneId), date);
@@ -651,7 +687,13 @@ function ouvrir(chemin) {
          ORDER BY c.ordre, j.nom COLLATE NOCASE, j.prenom COLLATE NOCASE`
       ).all().map((j) => {
         const p = prevus.find((x) => x.jeune_id === j.id);
-        return { ...j, sorti: !!j.sorti_le && j.sorti_le <= aujourdhui(), passage_prevu: p ? { date: p.date_debut, classe_code: p.code, type: p.type } : null };
+        const ct = contratDe(j.id, aujourdhui());
+        const suivante = db.prepare('SELECT date_debut FROM jeune_entreprises WHERE jeune_id = ? AND date_debut > ? ORDER BY date_debut LIMIT 1').get(j.id, ct.date_debut);
+        const sc = statutContrat(ct, suivante, j, aujourdhui());
+        return {
+          ...j, sorti: !!j.sorti_le && j.sorti_le <= aujourdhui(), passage_prevu: p ? { date: p.date_debut, classe_code: p.code, type: p.type } : null,
+          contrat_debut: ct.contrat_debut, contrat_fin: ct.contrat_fin, rupture_le: ct.rupture_le, contrat_statut: sc.statut,
+        };
       }).filter((j) => f?.tous || !j.sorti);
     },
 
@@ -672,6 +714,38 @@ function ouvrir(chemin) {
       synchroniser();
       return true;
     },
+
+    // Apprentis rattachés à une entreprise (actuels, futurs et anciens), avec les dates et le statut de chaque contrat.
+    'entreprises:apprentis': (id) => {
+      const auj = aujourdhui();
+      const classes = new Map(db.prepare('SELECT id, code, libelle FROM classes').all().map((c) => [c.id, c]));
+      const ordre = { en_cours: 0, a_venir: 1, termine: 2, rompu: 3 };
+      return db.prepare(
+        `SELECT je.*, j.nom, j.prenom, j.sorti_le, j.sortie_motif, ph.donnees AS photo
+         FROM jeune_entreprises je JOIN jeunes j ON j.id = je.jeune_id LEFT JOIN jeune_photos ph ON ph.jeune_id = j.id
+         WHERE je.entreprise_id = ?`
+      ).all(Number(id)).map((r) => {
+        const suivante = db.prepare('SELECT date_debut FROM jeune_entreprises WHERE jeune_id = ? AND date_debut > ? ORDER BY date_debut LIMIT 1').get(r.jeune_id, r.date_debut);
+        const sc = statutContrat(r, suivante, r, auj);
+        const ref = sc.fin && sc.fin < auj ? sc.fin : auj;
+        const classe = classes.get(classeDe(r.jeune_id, ref));
+        return {
+          jeune_id: r.jeune_id, nom: r.nom, prenom: r.prenom, photo: r.photo ?? null,
+          classe_code: classe?.code ?? '', formation: String(classe?.libelle ?? '').split(' — ')[0],
+          contrat_debut: sc.debut, contrat_fin: sc.fin, statut: sc.statut, maitre_nom: r.maitre_nom,
+        };
+      }).sort((a, b) => ordre[a.statut] - ordre[b.statut] || a.nom.localeCompare(b.nom, 'fr', { sensitivity: 'base' }));
+    },
+
+    'jeunes:photo': (id) => db.prepare('SELECT donnees FROM jeune_photos WHERE jeune_id = ?').get(Number(id))?.donnees ?? null,
+    'jeunes:photo:save': ({ id, donnees }) => {
+      if (typeof donnees !== 'string' || !/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(donnees)) throw new Error('Image invalide (JPEG ou PNG).');
+      if (donnees.length > 400_000) throw new Error('Image trop volumineuse.');
+      if (!db.prepare('SELECT 1 FROM jeunes WHERE id = ?').get(Number(id))) throw new Error('Apprenti introuvable.');
+      db.prepare('INSERT INTO jeune_photos (jeune_id, donnees) VALUES (?,?) ON CONFLICT(jeune_id) DO UPDATE SET donnees = excluded.donnees').run(Number(id), donnees);
+      return true;
+    },
+    'jeunes:photo:supprimer': (id) => { db.prepare('DELETE FROM jeune_photos WHERE jeune_id = ?').run(Number(id)); return true; },
 
     // Historique de l'entreprise et du maître d'apprentissage (le plus récent d'abord).
     'jeunes:contrats': (id) =>
@@ -779,13 +853,21 @@ function ouvrir(chemin) {
           ).run(...p, j.id);
           const nouveau = { entreprise_id: p[5], maitre_nom: p[6], maitre_telephone: p[7], maitre_email: p[8] };
           const ancien = contratDe(j.id, aujourdhui());
+          let nouvelEmployeur = false;
           if (!memeContrat(ancien, nouveau)) {
             if (j.contrat_correction && ancien) {
               db.prepare('UPDATE jeune_entreprises SET entreprise_id=?, maitre_nom=?, maitre_telephone=?, maitre_email=? WHERE id=?')
                 .run(nouveau.entreprise_id, nouveau.maitre_nom, nouveau.maitre_telephone, nouveau.maitre_email, ancien.id);
             } else {
               changerContrat(j.id, nouveau, j.contrat_depuis || aujourdhui(), j.contrat_note);
+              nouvelEmployeur = true; // les dates du contrat s'appliquent au nouveau contrat, qui démarre à la date du changement
             }
+          }
+          // Dates du contrat en cours (début, fin prévue, rupture) ; ignorées si l'employeur change (nouveau contrat).
+          if ('contrat_debut' in j && !nouvelEmployeur) {
+            const [d, f, r] = datesContrat(j);
+            const cible = contratDe(j.id, aujourdhui());
+            db.prepare('UPDATE jeune_entreprises SET contrat_debut = ?, contrat_fin = ?, rupture_le = ? WHERE id = ?').run(d, f, r, cible.id);
           }
           if (actuelle !== Number(j.classe_id)) {
             if (j.classe_correction) {
@@ -809,8 +891,8 @@ function ouvrir(chemin) {
         ).run(...p).lastInsertRowid
       );
       db.prepare('INSERT INTO jeune_classes (jeune_id, classe_id, date_debut) VALUES (?,?,?)').run(id, Number(j.classe_id), ORIGINE);
-      db.prepare('INSERT INTO jeune_entreprises (jeune_id, entreprise_id, maitre_nom, maitre_telephone, maitre_email, date_debut) VALUES (?,?,?,?,?,?)')
-        .run(id, p[5], p[6], p[7], p[8], ORIGINE);
+      db.prepare('INSERT INTO jeune_entreprises (jeune_id, entreprise_id, maitre_nom, maitre_telephone, maitre_email, date_debut, contrat_debut, contrat_fin, rupture_le) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, p[5], p[6], p[7], p[8], ORIGINE, ...datesContrat(j));
       return id;
     },
 

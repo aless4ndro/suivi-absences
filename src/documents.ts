@@ -1,5 +1,5 @@
 // Modèles de la convocation et de la feuille d'émargement de rattrapage (reprise des documents Word de l'établissement).
-import type { DonneesDocument, Etablissement, Seance } from './api';
+import type { Assiduite, DonneesDocument, Etablissement, Seance } from './api';
 import { formaterDate } from './format';
 
 export const CSS_DOCUMENT = `
@@ -162,4 +162,56 @@ export function htmlEmargement(d: DonneesDocument): string {
 
 export function envelopper(inner: string) {
   return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4;margin:0}html,body{margin:0;padding:0}${CSS_DOCUMENT}</style></head><body>${inner}</body></html>`;
+}
+
+// Tableau de bord d'assiduité : document au fil de l'eau (plusieurs pages si l'historique est long).
+export const CSS_ASSIDUITE = `
+.doc { font-family: Carlito, Calibri, Arial, sans-serif; font-size: 10.5pt; color: #000; line-height: 1.3; }
+.doc .logo { text-align: center; height: 22mm; margin-bottom: 4mm; }
+.doc .logo img { height: 22mm; width: auto; }
+.doc h1 { text-align: center; font-size: 15pt; margin: 0 0 2mm 0; }
+.doc .sous-titre { text-align: center; margin: 0 0 6mm 0; }
+.doc h2 { font-size: 11.5pt; margin: 6mm 0 2mm 0; border-bottom: 1.5px solid #1f3f7f; color: #1f3f7f; }
+.doc table { border-collapse: collapse; width: 100%; }
+.doc td, .doc th { border: 1px solid #555; padding: 3px 6px; vertical-align: top; }
+.doc th { background: #e8eef8; text-align: left; }
+.doc td.n, .doc th.n { text-align: right; white-space: nowrap; }
+.doc tr { page-break-inside: avoid; }
+.doc .just { color: #145a28; font-weight: 700; } .doc .injust { color: #8a1c10; font-weight: 700; } .doc .att { color: #6b4300; font-weight: 700; }
+.doc .note { font-size: 8.5pt; color: #444; margin-top: 6mm; }
+`;
+export const envelopperFlux = (inner: string) =>
+  `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4;margin:14mm 16mm}html,body{margin:0;padding:0}${CSS_ASSIDUITE}</style></head><body>${inner}</body></html>`;
+
+const hm = (min: number) => `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`;
+
+export function htmlAssiduite(d: Assiduite, aujourdhuiIso: string): string {
+  const ligne = (t: string, a: { nb: number; minutes: number }, r: { nb: number; minutes: number }, classe = '') =>
+    `<tr><td${classe ? ` class="${classe}"` : ''}>${t}</td><td class="n">${a.nb} — ${hm(a.minutes)}</td><td class="n">${r.nb} — ${hm(r.minutes)}</td></tr>`;
+  const statut = (s: string | null) => s === 'recevable' ? '<span class="just">Justifiée</span>' : s === 'irrecevable' ? '<span class="injust">Injustifiée</span>' : '<span class="att">En attente de motif</span>';
+  const quand = (e: { date_debut: string; date_fin: string | null }) =>
+    e.date_fin && e.date_fin !== e.date_debut ? `${formaterDate(e.date_debut)} → ${formaterDate(e.date_fin)}` : formaterDate(e.date_debut);
+  const lignes = d.evenements.map((e) => `<tr><td>${quand(e)}</td><td>${e.type === 'absence' ? 'Absence' : 'Retard'}</td><td class="n">${hm(e.duree_minutes ?? 0)}</td><td>${echapper(e.motif_libelle ?? '—')}</td><td>${statut(e.motif_statut)}</td></tr>`).join('');
+  return `<div class="doc">
+    <div class="logo"><img src="logo-etablissement.png" alt="" /></div>
+    <h1>Tableau de bord d'assiduité</h1>
+    <p class="sous-titre"><b>${echapper(d.jeune.nom.toUpperCase())} ${echapper(d.jeune.prenom)}</b> — ${echapper(d.jeune.classe)}<br/>Période du ${formaterDate(d.debut)} au ${formaterDate(d.fin)}</p>
+    <h2>Synthèse</h2>
+    <table>
+      <tr><th></th><th class="n">Absences</th><th class="n">Retards</th></tr>
+      ${ligne('Total (nombre — durée)', d.absences, d.retards)}
+      ${ligne('dont justifiés (motif recevable)', d.absences.justifiees, d.retards.justifiees, 'just')}
+      ${ligne('dont injustifiés (motif irrecevable)', d.absences.injustifiees, d.retards.injustifiees, 'injust')}
+      ${ligne('en attente de motif', d.absences.en_attente, d.retards.en_attente, 'att')}
+    </table>
+    <h2>Rattrapage des heures</h2>
+    <table>
+      <tr><td>Heures à rattraper (absences et retards injustifiés)</td><td class="n">${hm(d.rattrapage.dues)}</td></tr>
+      <tr><td>Heures rattrapées (séances validées)</td><td class="n">${hm(d.rattrapage.validees)}</td></tr>
+      <tr><td><b>Reste à rattraper</b></td><td class="n"><b>${hm(d.rattrapage.solde)}</b></td></tr>
+    </table>
+    <h2>Historique détaillé (${d.evenements.length})</h2>
+    ${d.evenements.length ? `<table><tr><th>Date</th><th>Type</th><th class="n">Durée</th><th>Motif</th><th>Statut</th></tr>${lignes}</table>` : '<p>Aucune absence ni retard sur cette période.</p>'}
+    <p class="note">Document édité le ${formaterDate(aujourdhuiIso)} par ${echapper(d.etablissement.nom)} — données personnelles confidentielles, à ne communiquer qu'aux personnes habilitées.</p>
+  </div>`;
 }

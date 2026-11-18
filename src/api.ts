@@ -13,6 +13,7 @@ export type Jeune = {
   classe_depuis?: string; classe_correction?: boolean;
   contrat_depuis?: string; contrat_correction?: boolean;
   sorti?: boolean; sorti_le?: string | null; sortie_motif?: string | null;
+  contrat_debut?: string | null; contrat_fin?: string | null; rupture_le?: string | null; contrat_statut?: StatutContrat;
   entreprise_telephone?: string | null; entreprise_email?: string | null;
 };
 export type Stats = {
@@ -190,3 +191,23 @@ export type ResultatRecherche =
   | { type: 'apprenti'; id: number; libelle: string; classe: string; annee: string; sorti: boolean; sorti_le: string | null }
   | { type: 'entreprise'; id: number; libelle: string; nom_commercial: string | null; siret: string | null; nb_apprentis: number };
 export type Cible = { type: 'apprenti' | 'entreprise'; id: number };
+export type StatutContrat = 'en_cours' | 'a_venir' | 'termine' | 'rompu';
+export const STATUTS_CONTRAT: Record<StatutContrat, { texte: string; classe: string }> = {
+  en_cours: { texte: 'En cours', classe: 'st-vert' }, a_venir: { texte: 'À venir', classe: 'st-bleu' },
+  termine: { texte: 'Terminé', classe: '' }, rompu: { texte: 'Rompu', classe: 'st-rouge' },
+};
+export type ApprentiEntreprise = {
+  jeune_id: number; nom: string; prenom: string; photo: string | null; classe_code: string; formation: string;
+  contrat_debut: string | null; contrat_fin: string | null; statut: StatutContrat; maitre_nom: string | null;
+};
+type Part = { nb: number; minutes: number };
+export type TotauxAssiduite = Part & { justifiees: Part; injustifiees: Part; en_attente: Part };
+export type EvenementAssiduite = {
+  id: number; type: 'absence' | 'retard'; date_debut: string; date_fin: string | null; duree_minutes: number | null;
+  observations: string | null; notifie_le: string | null; motif_libelle: string | null; motif_statut: 'recevable' | 'irrecevable' | null; nb_pieces: number;
+};
+export type Assiduite = {
+  jeune: { id: number; nom: string; prenom: string; classe: string; classe_libelle: string };
+  debut: string; fin: string; absences: TotauxAssiduite; retards: TotauxAssiduite; evenements: EvenementAssiduite[];
+  rattrapage: { dues: number; validees: number; programmees: number; solde: number }; etablissement: Etablissement;
+};

@@ -68,8 +68,8 @@ export default function App() {
         {page === 'accueil' && <Accueil allerA={allerA} ouvrirFiche={ouvrirFiche} />
         }
         {page === 'absences' && <Absences key={JSON.stringify(filtreAbsences ?? {})} filtreInitial={filtreAbsences} />}
-        {page === 'jeunes' && <Jeunes cible={cible?.type === 'apprenti' ? cible.id : null} apresCible={() => setCible(null)} />}
-        {page === 'entreprises' && <Entreprises cible={cible?.type === 'entreprise' ? cible.id : null} apresCible={() => setCible(null)} />}
+        {page === 'jeunes' && <Jeunes cible={cible?.type === 'apprenti' ? cible.id : null} apresCible={() => setCible(null)} allerA={allerA} ouvrirFiche={ouvrirFiche} />}
+        {page === 'entreprises' && <Entreprises cible={cible?.type === 'entreprise' ? cible.id : null} apresCible={() => setCible(null)} ouvrirFiche={ouvrirFiche} />}
         {page === 'professeurs' && <Professeurs />}
         {page === 'motifs' && <Motifs />}
         {page === 'calendrier' && <Calendrier />}

@@ -154,3 +154,23 @@ button.petit + button.petit { margin-left: 4px; }
 tr.clic { cursor: pointer; }
 tr.clic:hover td { background: #f3f8ff; }
 .suggestions .etiquette { margin-left: 8px; }
+
+/* Fiche apprenti : photo, assiduité ; fiche entreprise : galerie d'apprentis */
+.photo-apprenti { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
+.photo-apprenti img, .photo-vide { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; flex: none; }
+.photo-vide { display: inline-flex; align-items: center; justify-content: center; background: #d6e6fb; color: #123d7a; font-weight: 700; font-size: 28px; }
+.bloc-assiduite { margin-top: 18px; border-top: 2px solid #d6e0f0; padding-top: 6px; }
+.cartes-stat { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0; }
+.carte-stat { border: 1px solid #d6e0f0; border-radius: 10px; padding: 12px; background: #fafcff; min-width: 0; }
+.carte-titre { font-weight: 600; }
+.carte-grand { font-size: 30px; font-weight: 700; line-height: 1.1; }
+.carte-detail { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.apercu-assiduite .doc { font-size: 13px; }
+.apercu-assiduite .doc .logo { display: none; }
+.apercu-assiduite table { width: 100%; }
+.galerie-apprentis { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin: 10px 0 16px; }
+.carte-apprenti { display: flex; gap: 12px; align-items: center; text-align: left; padding: 10px; border: 1px solid #d6e0f0; border-radius: 10px; background: #fff; cursor: pointer; min-width: 0; }
+.carte-apprenti:hover { background: #f3f7fe; }
+.carte-apprenti img, .carte-apprenti .photo-vide { width: 56px; height: 56px; font-size: 18px; }
+.carte-apprenti .infos { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.carte-apprenti .infos .etiquette { align-self: flex-start; }

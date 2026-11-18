@@ -1,10 +1,20 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { appeler, type Contact, type Entreprise } from '../api';
+import { appeler, STATUTS_CONTRAT, type ApprentiEntreprise, type Contact, type Entreprise, type StatutContrat } from '../api';
+import { formaterDate } from '../format';
 import { correspond } from '../recherche';
 
 const VIDE: Entreprise = { nom: '', adresse: '', telephone: '', email: '', nom_commercial: '', siret: '' };
 
-export default function Entreprises({ cible, apresCible }: { cible?: number | null; apresCible?: () => void }) {
+const FILTRES: { id: StatutContrat | 'tous'; texte: string }[] = [
+  { id: 'tous', texte: 'Tous' }, { id: 'en_cours', texte: 'En cours' }, { id: 'a_venir', texte: 'À venir' },
+  { id: 'termine', texte: 'Terminés' }, { id: 'rompu', texte: 'Rompus' },
+];
+
+export default function Entreprises({ cible, apresCible, ouvrirFiche: ouvrirApprenti }: {
+  cible?: number | null; apresCible?: () => void; ouvrirFiche?: (type: 'apprenti' | 'entreprise', id: number) => void;
+}) {
+  const [apprentis, setApprentis] = useState<ApprentiEntreprise[]>([]);
+  const [filtreStatut, setFiltreStatut] = useState<StatutContrat | 'tous'>('tous');
   const [recherche, setRecherche] = useState('');
   const [liste, setListe] = useState<Entreprise[]>([]);
   const [fiche, setFiche] = useState<Entreprise | null>(null);
@@ -17,7 +27,9 @@ export default function Entreprises({ cible, apresCible }: { cible?: number | nu
   function ouvrirFiche(ent: Entreprise | null) {
     setErreur(''); setContact(null); setErreurContact('');
     setFiche(ent);
-    if (ent?.id) chargerContacts(ent.id); else setContacts([]);
+    setFiltreStatut('tous');
+    if (ent?.id) { chargerContacts(ent.id); appeler<ApprentiEntreprise[]>('entreprises:apprentis', ent.id).then(setApprentis); }
+    else { setContacts([]); setApprentis([]); }
   }
   async function enregistrerContact() {
     if (!fiche?.id || !contact) return;
@@ -98,6 +110,35 @@ export default function Entreprises({ cible, apresCible }: { cible?: number | nu
             <button type="button" onClick={() => ouvrirFiche(null)}>Annuler</button>
           </div>
 
+          {fiche.id && (
+            <>
+              <h3>Apprentis rattachés à l'entreprise ({apprentis.filter((a) => a.statut === 'en_cours').length} en cours)</h3>
+              {apprentis.length === 0 ? <p className="discret">Aucun apprenti n'est rattaché à cette entreprise.</p> : (
+                <>
+                  <div className="onglets">
+                    {FILTRES.map((f) => (
+                      <button key={f.id} type="button" className={filtreStatut === f.id ? 'actif' : ''} onClick={() => setFiltreStatut(f.id)}>
+                        {f.texte} ({f.id === 'tous' ? apprentis.length : apprentis.filter((a) => a.statut === f.id).length})
+                      </button>
+                    ))}
+                  </div>
+                  <div className="galerie-apprentis">
+                    {apprentis.filter((a) => filtreStatut === 'tous' || a.statut === filtreStatut).map((a) => (
+                      <button type="button" key={`${a.jeune_id}-${a.contrat_debut}-${a.statut}`} className="carte-apprenti" onClick={() => ouvrirApprenti?.('apprenti', a.jeune_id)} title="Ouvrir la fiche de l'apprenti">
+                        {a.photo ? <img src={a.photo} alt="" /> : <span className="photo-vide">{(a.prenom[0] ?? '') + (a.nom[0] ?? '')}</span>}
+                        <span className="infos">
+                          <strong>{a.nom.toUpperCase()} {a.prenom}</strong>
+                          <span className="discret">{a.formation} — {a.classe_code}</span>
+                          <span className="discret">{a.contrat_debut || a.contrat_fin ? `Contrat du ${a.contrat_debut ? formaterDate(a.contrat_debut) : '…'} au ${a.contrat_fin ? formaterDate(a.contrat_fin) : '…'}` : 'Dates du contrat non renseignées'}</span>
+                          <span className={`etiquette ${STATUTS_CONTRAT[a.statut].classe}`}>{STATUTS_CONTRAT[a.statut].texte}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
           <h3>Autres interlocuteurs de l'entreprise</h3>
           {!fiche.id ? (
             <p className="discret">Enregistrez d'abord l'entreprise pour pouvoir ajouter des interlocuteurs.</p>

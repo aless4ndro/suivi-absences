@@ -1,13 +1,18 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { appeler, MOTIFS_SORTIE, type Classe, type Contact, type Entreprise, type Jeune, type LigneClasse, type LigneContrat } from '../api';
+import { appeler, MOTIFS_SORTIE, STATUTS_CONTRAT, type Classe, type Contact, type Entreprise, type Jeune, type LigneClasse, type LigneContrat } from '../api';
 import Bascule from './Bascule';
+import FicheAssiduite from '../FicheAssiduite';
+import PhotoApprenti from '../PhotoApprenti';
 import { correspond } from '../recherche';
 import { aujourdhui, formaterDate } from '../format';
 
 const ORIGINE = '2000-01-01';
 const normaliser = (v?: string | null) => (v ?? '').trim();
 
-export default function Jeunes({ cible, apresCible }: { cible?: number | null; apresCible?: () => void }) {
+type Aller = (page: string, filtre?: { jeune_id?: number; type?: '' | 'absence' | 'retard' }) => void;
+export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirAutre }: {
+  cible?: number | null; apresCible?: () => void; allerA?: Aller; ouvrirFiche?: (type: 'apprenti' | 'entreprise', id: number) => void;
+}) {
   const [recherche, setRecherche] = useState('');
   const [classes, setClasses] = useState<Classe[]>([]);
   const [entreprises, setEntreprises] = useState<Entreprise[]>([]);
@@ -174,6 +179,7 @@ export default function Jeunes({ cible, apresCible }: { cible?: number | null; a
       {fiche && (
         <form className="fiche" onSubmit={enregistrer}>
           <h2>{fiche.id ? 'Modifier la fiche' : 'Nouvel apprenti'}</h2>
+          {fiche.id && <PhotoApprenti jeuneId={fiche.id} nom={`${fiche.prenom} ${fiche.nom}`} />}
           <div className="grille">
             <label>Nom *<input autoFocus required {...champ('nom')} /></label>
             <label>Prénom *<input required {...champ('prenom')} /></label>
@@ -285,6 +291,22 @@ export default function Jeunes({ cible, apresCible }: { cible?: number | null; a
           )}
           {fiche.id && (
             <>
+              <h3>Contrat en cours {fiche.contrat_statut && <span className={`etiquette ${STATUTS_CONTRAT[fiche.contrat_statut].classe}`}>{STATUTS_CONTRAT[fiche.contrat_statut].texte}</span>}</h3>
+              {contratChange ? (
+                <p className="discret">Les dates du nouveau contrat se renseigneront après l'enregistrement du changement d'entreprise.</p>
+              ) : (
+                <div className="grille">
+                  <label>Début du contrat<input type="date" {...champ('contrat_debut')} /></label>
+                  <label>Fin prévue du contrat<input type="date" {...champ('contrat_fin')} /></label>
+                  <label>Rupture du contrat (si rompu)<input type="date" {...champ('rupture_le')} /></label>
+                </div>
+              )}
+              <p className="discret">Une rupture de contrat n'est pas une sortie de formation : l'apprenti reste dans l'établissement (en recherche d'entreprise).</p>
+              {fiche.entreprise_id && ouvrirAutre && <button type="button" onClick={() => ouvrirAutre('entreprise', fiche.entreprise_id!)}>Ouvrir la fiche de l'entreprise</button>}
+            </>
+          )}
+          {fiche.id && (
+            <>
               <h3>Sortie de la formation</h3>
               {fiche.sorti_le ? (
                 <p>
@@ -310,6 +332,7 @@ export default function Jeunes({ cible, apresCible }: { cible?: number | null; a
               <p className="discret">L'apprenti disparaît des listes à partir de cette date ; absences, retards et rattrapages sont conservés.</p>
             </>
           )}
+          {fiche.id && <FicheAssiduite key={fiche.id} jeuneId={fiche.id} allerA={allerA} />}
           {erreur && <p className="erreur">{erreur}</p>}
           <div className="actions">
             <button type="submit" className="principal">Enregistrer</button>

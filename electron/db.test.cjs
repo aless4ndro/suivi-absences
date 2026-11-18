@@ -570,3 +570,72 @@ test('recherche : accents, ordre nom/prénom, fragments, SIRET, apprentis sortis
   db.appeler('entreprises:save', { id: ent, nom: 'Boulangerie Éléonore SARL', siret: '55208131700019' }); // sa propre fiche : accepté
   db.fermer();
 });
+
+test('fiche apprenti et fiche entreprise : assiduité, contrats (en cours, à venir, terminé, rompu), photo', () => {
+  const db = ouvrir(':memory:');
+  const classes = db.appeler('classes:list');
+  const mco = classes.find((c) => c.code === 'MCO 1ère année');
+  const motifs = db.appeler('motifs:list');
+  const recevable = motifs.find((m) => m.statut === 'recevable').id;
+  const irrec = motifs.find((m) => m.statut === 'irrecevable').id;
+  const e1 = db.appeler('entreprises:save', { nom: 'Entreprise A' });
+  const e2 = db.appeler('entreprises:save', { nom: 'Entreprise B' });
+  const a = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: mco.id, entreprise_id: e1 });
+  const un = (jid, type, date, motif, h1, h2) => db.appeler('evenements:save', { jeune_id: jid, type, motif_id: motif, creneaux: [{ date, heure_debut: h1, heure_fin: h2 }] });
+  un(a, 'absence', '2026-10-05', recevable, '08:30', '12:30'); // justifiée 4 h
+  un(a, 'absence', '2026-10-12', irrec, '08:30', '10:30'); // injustifiée 2 h
+  un(a, 'absence', '2026-10-19', null, '14:00', '15:00'); // en attente 1 h
+  un(a, 'retard', '2026-11-02', irrec, '08:30', '08:50'); // retard 20 min
+  const b = db.appeler('jeunes:save', { nom: 'Autre', prenom: 'Zoé', classe_id: mco.id });
+  un(b, 'absence', '2026-10-06', irrec, '08:30', '12:30'); // ne doit pas apparaître chez Léa
+
+  const t = db.appeler('jeunes:assiduite', { id: a, debut: '2026-09-01', fin: '2027-08-31' });
+  assert.deepStrictEqual([t.absences.nb, t.absences.minutes], [3, 420]);
+  assert.deepStrictEqual([t.absences.justifiees.minutes, t.absences.injustifiees.minutes, t.absences.en_attente.minutes], [240, 120, 60]);
+  assert.deepStrictEqual([t.retards.nb, t.retards.minutes, t.retards.injustifiees.nb], [1, 20, 1]);
+  assert.strictEqual(t.evenements.length, 4);
+  assert.strictEqual(t.rattrapage.dues, 140); // 2 h + 20 min irrecevables
+  assert.strictEqual(db.appeler('jeunes:assiduite', { id: a, debut: '2026-11-01', fin: '2026-11-30' }).absences.nb, 0);
+  assert.throws(() => db.appeler('jeunes:assiduite', { id: a, debut: '2026-12-01', fin: '2026-11-01' }), /Période invalide/);
+
+  // contrat : dates saisies sur la fiche, statut calculé
+  const fiche = () => db.appeler('jeunes:list').find((j) => j.id === a);
+  assert.strictEqual(fiche().contrat_statut, 'en_cours'); // sans date : en cours
+  db.appeler('jeunes:save', { ...fiche(), contrat_debut: '2026-09-01', contrat_fin: '2028-08-31' });
+  assert.deepStrictEqual([fiche().contrat_debut, fiche().contrat_fin, fiche().contrat_statut], ['2026-09-01', '2028-08-31', 'en_cours']);
+  assert.throws(() => db.appeler('jeunes:save', { ...fiche(), contrat_fin: '2026-01-01' }), /avant son début/);
+  db.appeler('jeunes:save', { ...fiche(), contrat_debut: '2099-01-01', contrat_fin: null });
+  assert.strictEqual(fiche().contrat_statut, 'a_venir');
+  db.appeler('jeunes:save', { ...fiche(), contrat_debut: '2026-09-01', rupture_le: '2026-11-10' });
+  assert.strictEqual(fiche().contrat_statut, 'rompu');
+  db.appeler('jeunes:save', { ...fiche(), rupture_le: null });
+
+  // changement d'employeur : l'ancien contrat est terminé chez A, le nouveau en cours chez B
+  db.appeler('jeunes:save', { ...fiche(), entreprise_id: e2, contrat_depuis: '2099-01-01' });
+  assert.deepStrictEqual(db.appeler('entreprises:apprentis', e1).map((x) => x.statut), ['en_cours']); // changement futur : rien ne bouge
+  assert.deepStrictEqual(db.appeler('entreprises:apprentis', e2).map((x) => x.statut), ['a_venir']);
+  db.appeler('jeunes:contrat:supprimer', db.appeler('jeunes:contrats', a)[0].id); // changement annulé
+  db.appeler('jeunes:save', { ...fiche(), entreprise_id: e2, contrat_depuis: '2026-11-01' });
+  const chezA = db.appeler('entreprises:apprentis', e1);
+  const chezB = db.appeler('entreprises:apprentis', e2);
+  assert.deepStrictEqual(chezA.map((x) => [x.nom, x.statut, x.contrat_fin]), [['Durand', 'termine', '2026-10-31']]);
+  assert.deepStrictEqual(chezB.map((x) => [x.nom, x.statut, x.contrat_debut, x.classe_code]), [['Durand', 'en_cours', '2026-11-01', 'MCO 1ère année']]);
+  assert.strictEqual(chezB[0].formation, 'BTS Management Commercial Opérationnel');
+
+  // apprenti sorti pour démission : contrat rompu ; plusieurs apprentis triés (en cours avant terminés)
+  db.appeler('jeunes:sortir', { id: b, date: '2026-10-20', motif: 'demission' });
+  db.appeler('jeunes:save', { ...db.appeler('jeunes:list', { tous: true }).find((j) => j.id === b), entreprise_id: e2, contrat_depuis: '2026-09-15' });
+  const liste = db.appeler('entreprises:apprentis', e2);
+  assert.deepStrictEqual(liste.map((x) => [x.nom, x.statut]), [['Durand', 'en_cours'], ['Autre', 'rompu']]);
+  assert.strictEqual(db.appeler('entreprises:apprentis', e1).length, 1);
+
+  // photo : format contrôlé, séparée de la liste
+  assert.throws(() => db.appeler('jeunes:photo:save', { id: a, donnees: 'pas une image' }), /invalide/);
+  db.appeler('jeunes:photo:save', { id: a, donnees: 'data:image/jpeg;base64,/9j/4AAQ' });
+  assert.strictEqual(db.appeler('jeunes:photo', a), 'data:image/jpeg;base64,/9j/4AAQ');
+  assert.strictEqual(db.appeler('entreprises:apprentis', e2).find((x) => x.nom === 'Durand').photo, 'data:image/jpeg;base64,/9j/4AAQ');
+  assert.ok(!('photo' in fiche()));
+  db.appeler('jeunes:photo:supprimer', a);
+  assert.strictEqual(db.appeler('jeunes:photo', a), null);
+  db.fermer();
+});
