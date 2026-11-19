@@ -287,11 +287,10 @@ test('migration : copie de sécurité créée avant la mise à niveau, données 
   fs.rmSync(dossier, { recursive: true, force: true });
 });
 
-test('calendrier : chargé pour les 7 classes, modifiable, conservé à la migration', () => {
+test('calendrier : chargé pour les 10 classes, modifiable, conservé à la migration', () => {
   const db = ouvrir(':memory:');
   const classes = db.appeler('classes:list');
-  for (const c of classes.filter((x) => !x.code.startsWith('DTS'))) assert.ok(db.appeler('calendrier:annee', c.id).length > 200, c.code);
-  assert.strictEqual(db.appeler('calendrier:annee', classes.find((x) => x.code === 'DTS IMRT 1ère année').id).length, 0); // calendrier DTS pas encore fourni
+  for (const c of classes) assert.ok(db.appeler('calendrier:annee', c.id).length > 200, c.code);
   const gpme1 = classes.find((c) => c.code === 'GPME 1ère année').id;
   const cal = Object.fromEntries(db.appeler('calendrier:annee', gpme1).map((j) => [j.date, j]));
   // lecture du PDF : 1er au 4 septembre en centre, 9 en entreprise, jour d'intégration le 15 octobre (centre)
@@ -895,5 +894,26 @@ test('mails types : modèles préchargés, variables, validation, historique', (
   const h = db.appeler('mails:historique', jid);
   assert.strictEqual(h.length, 2);
   assert.ok(h.some((x) => x.modele_nom === 'Mien') && h.some((x) => x.source.startsWith('Commission')));
+  db.fermer();
+});
+
+test('calendriers DTS IMRT 2026-2027 : école, immersions en entreprise, jours blancs sans type', () => {
+  const db = ouvrir(':memory:');
+  const get = (code) => {
+    const c = db.appeler('classes:list').find((x) => x.code === code);
+    return new Map(db.appeler('calendrier:annee', c.id).map((j) => [j.date, j]));
+  };
+  const a1 = get('DTS IMRT 1ère année');
+  assert.strictEqual(a1.get('2026-09-11').type, 'centre');
+  assert.strictEqual(a1.get('2026-10-12').type, 'entreprise');
+  assert.strictEqual(a1.get('2026-10-12').libelle, 'Immersion évaluée');
+  assert.strictEqual(a1.get('2026-11-02').type, 'entreprise');
+  assert.strictEqual(a1.get('2026-11-02').libelle, null);
+  assert.strictEqual(a1.get('2027-04-03').type, 'centre'); // samedi de cours
+  assert.strictEqual(a1.has('2027-01-01'), false); // jour férié : blanc
+  assert.strictEqual(a1.has('2026-09-06'), false); // dimanche
+  const a3 = get('DTS IMRT 3ème année');
+  assert.strictEqual(a3.has('2027-07-20'), false); // fin de formation
+  assert.ok(get('DTS IMRT 2ème année').get('2027-07-20'));
   db.fermer();
 });

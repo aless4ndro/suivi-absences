@@ -3,6 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('node:fs');
 
 const CALENDRIERS = require('./calendriers-2026-2027.cjs');
+const CALENDRIERS_IMRT = require('./calendriers-imrt.cjs');
 const { creerRattrapages } = require('./rattrapages.cjs');
 const { creerProfesseurs, anneeScolaire } = require('./professeurs.cjs');
 const { creerDiscipline } = require('./discipline.cjs');
@@ -23,6 +24,22 @@ function sqlCalendriers() {
         const iso = d.toISOString().slice(0, 10);
         lignes.push(
           `INSERT INTO calendrier_jours (classe_id, date, type, libelle) SELECT id, ${q(iso)}, ${q(TYPES[t])}, ${libelles[iso] ? q(libelles[iso]) : 'NULL'} FROM classes WHERE code = ${q(code)};`
+        );
+      }
+    }
+  }
+  return lignes.join('\n');
+}
+
+// Calendriers DTS IMRT : week-ends inclus quand ils sont colorés dans le PDF ; « E » = immersion évaluée (en entreprise).
+function sqlCalendriersImrt() {
+  const q = (t) => `'${String(t).replace(/'/g, "''")}'`;
+  const lignes = [];
+  for (const [code, plages] of Object.entries(CALENDRIERS_IMRT)) {
+    for (const [debut, fin, t] of plages) {
+      for (let d = new Date(`${debut}T00:00:00Z`); d.toISOString().slice(0, 10) <= fin; d.setUTCDate(d.getUTCDate() + 1)) {
+        lignes.push(
+          `INSERT INTO calendrier_jours (classe_id, date, type, libelle) SELECT id, ${q(d.toISOString().slice(0, 10))}, ${q(t === 'c' ? 'centre' : 'entreprise')}, ${t === 'E' ? q('Immersion évaluée') : 'NULL'} FROM classes WHERE code = ${q(code)};`
         );
       }
     }
@@ -555,6 +572,10 @@ const MIGRATIONS = [
     statut TEXT NOT NULL
   );
   CREATE INDEX historique_mails_jeune ON historique_mails (jeune_id, quand);
+  `,
+  // v20 : calendriers d'alternance 2026-2027 de la formation DTS IMRT (1re, 2e et 3e années).
+  `
+  ${sqlCalendriersImrt()}
   `,
 ];
 

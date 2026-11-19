@@ -38,7 +38,8 @@ npm run dist   # produit release/SuiviAbsences.exe (sous Windows)
 - [x] Historique entreprise / maître d'apprentissage, contrats, photo
 - [x] Fiche apprenti : absences et retards, tableau de bord d'assiduité (PDF) ; fiche entreprise : apprentis rattachés
 - [x] Recherche (Accueil, Apprentis, Entreprises)
-- [ ] Calendriers DTS IMRT (à fournir) et calendriers 2027-2028
+- [x] Calendriers DTS IMRT 2026-2027 (1re, 2e et 3e années)
+- [ ] Calendriers 2027-2028
 - [ ] Statistiques (exports Word / PDF / Excel)
 - [x] Sanctions, lot 1 : motifs et paliers, proposition de palier, décision humaine, historique tracé, pièces, communication à l'employeur, professeur principal et représentant légal des mineurs
 - [x] Sanctions, lot 2 : commissions pédagogiques et disciplinaires (programmation, participants, statuts, report, compte rendu, convocations Word d'après les modèles de l'établissement, mails Outlook, rappels sur l'Accueil, calendrier)
