@@ -8,6 +8,7 @@ const { creerProfesseurs, anneeScolaire } = require('./professeurs.cjs');
 const { creerDiscipline } = require('./discipline.cjs');
 const { creerCommissions } = require('./commissions.cjs');
 const { creerAlertes } = require('./alertes.cjs');
+const { creerTableauBord } = require('./tableau-bord.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -1324,7 +1325,10 @@ function ouvrir(chemin) {
   const professeurs = creerProfesseurs(db, { vide, dateValide, cle });
   Object.assign(actions, professeurs.actions);
   Object.assign(actions, creerDiscipline(db, { vide, dateValide, cle, classeDe, destinatairesDe, aujourdhui, tailleMax: TAILLE_MAX_PIECE }));
-  Object.assign(actions, creerAlertes(db, { aujourdhui, horaires: () => actions['horaires:get'](), etablissement: () => actions['etablissement:get']() }));
+  const alertesModule = creerAlertes(db, { aujourdhui, horaires: () => actions['horaires:get'](), etablissement: () => actions['etablissement:get']() });
+  const { recalculer: recalculerAlertes, ...alertesActions } = alertesModule;
+  Object.assign(actions, alertesActions);
+  Object.assign(actions, creerTableauBord(db, { aujourdhui, recalculerAlertes }));
   Object.assign(actions, creerCommissions(db, { tailleMax: TAILLE_MAX_PIECE, vide, dateValide, classeDe, destinatairesDe, aujourdhui, etablissement: () => actions['etablissement:get']() }));
 
   return {

@@ -844,3 +844,24 @@ test('alertes de seuils : retards, demi-journées non recevables, cumul, suivi',
   assert.strictEqual(db.appeler('alertes:list', { regle_id: r.id }).length, 0);
   db.fermer();
 });
+
+test('tableau de bord disciplinaire : indicateurs et filtres', () => {
+  const db = ouvrir(':memory:');
+  const classes = db.appeler('classes:list');
+  const a = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: classes[0].id });
+  const b = db.appeler('jeunes:save', { nom: 'Martin', prenom: 'Paul', classe_id: classes.find((c) => c.libelle.startsWith('DTS')).id });
+  assert.deepStrictEqual(db.appeler('dashboard:get', {}).indicateurs, { alertes_a_traiter: 0, sanctions_prononcees: 0, commissions_programmees: 0, commissions_a_organiser: 0 });
+  const motif = db.appeler('sanctions:motifs')[0];
+  const sid = db.appeler('sanctions:save', { jeune_id: a, motif_id: motif.id, date_faits: '2026-11-02', decision: 'sanction', palier_retenu_id: motif.palier_id, date_decision: '2026-11-03' });
+  assert.ok(sid);
+  db.appeler('commissions:save', { jeune_id: a, type: 'disciplinaire', motif: 'x', date: '2999-02-01', heure_debut: '10:00' });
+  db.appeler('commissions:save', { jeune_id: b, type: 'pedagogique', motif: 'y' });
+  const t = db.appeler('dashboard:get', {});
+  assert.deepStrictEqual(t.indicateurs, { alertes_a_traiter: 0, sanctions_prononcees: 1, commissions_programmees: 1, commissions_a_organiser: 1 });
+  assert.strictEqual(t.commissions_a_venir[0].jeune_nom, 'Durand');
+  assert.strictEqual(db.appeler('dashboard:get', { jeune_id: b }).indicateurs.sanctions_prononcees, 0);
+  assert.strictEqual(db.appeler('dashboard:get', { formation: 'DTS' }).indicateurs.commissions_a_organiser, 1);
+  assert.strictEqual(db.appeler('dashboard:get', { formation: 'DTS' }).indicateurs.commissions_programmees, 0);
+  assert.strictEqual(db.appeler('dashboard:get', { debut: '2026-12-01' }).indicateurs.sanctions_prononcees, 0);
+  db.fermer();
+});

@@ -115,6 +115,7 @@ function creerAlertes(db, h) {
   const enrichir = (a) => ({ ...a, periode_libelle: plageDe(a.regle_periode, a.periode_cle).libelle });
 
   return {
+    recalculer, // utilisé par le tableau de bord
     'alertes:regles': () => {
       const regles = db.prepare('SELECT * FROM regles_alerte ORDER BY id').all();
       return regles.map((r) => ({ ...r, destinataires: db.prepare('SELECT intervenant_id FROM regle_destinataires WHERE regle_id = ?').all(r.id).map((x) => x.intervenant_id) }));

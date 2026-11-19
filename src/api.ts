@@ -284,3 +284,16 @@ export type AlerteDetail = Alerte & {
   destinataires: { id: number; nom: string; fonction: string | null; email: string | null }[];
   journal: { id: number; quand: string; action: string; detail: string | null }[];
 };
+
+// ---- Tableau de bord disciplinaire ----
+export type TableauBord = {
+  indicateurs: { alertes_a_traiter: number; sanctions_prononcees: number; commissions_programmees: number; commissions_a_organiser: number };
+  alertes: { id: number; jeune_id: number; jeune_nom: string; jeune_prenom: string; classe_code: string; regle: string; valeur: number; seuil: number; statut: StatutAlerte; periode_cle: string }[];
+  commissions_a_venir: LigneDashCommission[];
+  commissions_a_organiser: LigneDashCommission[];
+  sanctions: { id: number; jeune_id: number; jeune_nom: string; jeune_prenom: string; classe_code: string; palier: string | null; motif: string; date_decision: string | null; date_faits: string }[];
+};
+export type LigneDashCommission = {
+  id: number; jeune_id: number; jeune_nom: string; jeune_prenom: string; classe_code: string; type: TypeCommission; date: string | null; heure_debut: string | null;
+  statut: StatutCommission; motif: string; nb_convocations: number; participants: string | null;
+};
