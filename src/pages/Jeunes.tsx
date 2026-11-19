@@ -1,12 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { appeler, MOTIFS_SORTIE, NOMS_DECISION, NOMS_STATUT_COMMISSION, NOMS_TYPE_COMMISSION, type Commission, STATUTS_CONTRAT, type Classe, type Sanction, type Contact, type Entreprise, type Jeune, type LigneClasse, type LigneContrat } from '../api';
+import { appeler, MOTIFS_SORTIE, NOMS_DECISION, NOMS_STATUT_COMMISSION, NOMS_TYPE_COMMISSION, type Commission, type MailHistorique, STATUTS_CONTRAT, type Classe, type Sanction, type Contact, type Entreprise, type Jeune, type LigneClasse, type LigneContrat } from '../api';
 import Bascule from './Bascule';
 import FicheAssiduite from '../FicheAssiduite';
 import PhotoApprenti from '../PhotoApprenti';
 import SanctionForm from '../SanctionForm';
 import CommissionForm from '../CommissionForm';
 import { correspond } from '../recherche';
-import { aujourdhui, formaterDate } from '../format';
+import { aujourdhui, formaterDate, formaterDateHeure } from '../format';
 
 const ORIGINE = '2000-01-01';
 const normaliser = (v?: string | null) => (v ?? '').trim();
@@ -33,6 +33,7 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
   const [info, setInfo] = useState('');
   const [sanctions, setSanctions] = useState<Sanction[]>([]);
   const [sanctionOuverte, setSanctionOuverte] = useState<{ id: number | null } | null>(null);
+  const [mails, setMails] = useState<MailHistorique[]>([]);
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [commissionOuverte, setCommissionOuverte] = useState<{ id: number | null } | null>(null);
   const chargerCommissions = (id?: number) => id ? appeler<Commission[]>('commissions:list', { jeune_id: id }).then(setCommissions) : setCommissions([]);
@@ -69,6 +70,7 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
     appeler<LigneContrat[]>('jeunes:contrats', j.id).then(setContrats);
     chargerSanctions(j.id);
     chargerCommissions(j.id);
+    if (j.id) appeler<MailHistorique[]>('mails:historique', j.id).then(setMails); else setMails([]);
   }
 
   async function recharger(id: number) {
@@ -386,6 +388,22 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
                 </table>
               )}
               <div className="actions"><button type="button" onClick={() => setCommissionOuverte({ id: null })}>Programmer une commission</button></div>
+            </section>
+          )}
+          {fiche.id && (
+            <section className="bloc-assiduite">
+              <h3>Communications</h3>
+              {mails.length === 0 ? <p className="discret">Aucun mail préparé depuis l'application.</p> : (
+                <table>
+                  <tbody>
+                    {mails.map((m) => (
+                      <tr key={m.id} title={m.contenu}>
+                        <td>{formaterDateHeure(m.quand)}</td><td>{m.source}</td><td>{m.objet}</td><td>{m.destinataires}</td><td>{m.modele_nom ?? ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </section>
           )}
           {fiche.id && <FicheAssiduite key={fiche.id} jeuneId={fiche.id} allerA={allerA} />}

@@ -8,6 +8,7 @@ import ChoixDestinataires, { adressesInvalides, repartition, ppInclus, type Envo
 import { aujourdhui, formaterDate, formaterDateHeure, formaterTaille } from './format';
 import { corpsSanction, sujetSanction } from './discipline';
 import CommissionForm from './CommissionForm';
+import SelecteurModele from './SelecteurModele';
 
 const VIDE = (jeuneId: number): Sanction => ({
   jeune_id: jeuneId, date_faits: aujourdhui(), motif_id: 0, decision: 'en_attente', palier_retenu_id: null,
@@ -32,6 +33,7 @@ export default function SanctionForm({ jeuneId, sanctionId, apprentis, onClose, 
   const [notif, setNotif] = useState<Notif | null>(null);
   const [id, setId] = useState<number | null>(sanctionId ?? null);
   const [commission, setCommission] = useState(false);
+  const [modele, setModele] = useState('');
   const [liees, setLiees] = useState<{ id: number; date: string | null; statut: string }[]>([]);
 
   const cloture = detail?.statut === 'cloturee';
@@ -136,7 +138,7 @@ export default function SanctionForm({ jeuneId, sanctionId, apprentis, onClose, 
     try {
       const r = await documents<ResultatCourriel>('courriel', { ...rep, objet: notif.objet, corps: notif.corps, piece_sanction_ids: notif.pieces });
       await appeler('sanctions:communication:archiver', {
-        sanction_id: id, ...rep, objet: notif.objet, corps: notif.corps, methode: r.methode,
+        sanction_id: id, ...rep, objet: notif.objet, corps: notif.corps, methode: r.methode, modele_nom: modele || undefined,
         pieces: detail.pieces.filter((p) => notif.pieces.includes(p.id)).map((p) => p.nom_fichier).join(', '),
       });
       setInfo(r.methode === 'outlook' ? 'Brouillon ouvert dans Outlook et archivé dans le dossier. Relisez-le puis envoyez-le vous-même.' : `Outlook n'a pas pu être piloté (${r.raison}). Un message a été ouvert et archivé ; glissez-y les pièces.`);
@@ -300,6 +302,7 @@ export default function SanctionForm({ jeuneId, sanctionId, apprentis, onClose, 
               {notif.mineur && notif.manquant && <p className="alerte-texte">⚠ L'apprenti est mineur mais aucun représentant légal n'a d'adresse e-mail : complétez sa fiche.</p>}
               {notif.mineur && !notif.manquant && <p className="discret">L'apprenti est mineur : son représentant légal est proposé en copie.</p>}
               {ppInclus(notif.envoi, notif.destinataires) && <p className="discret">Le professeur principal est inclus pour être informé de la sanction.</p>}
+              <SelecteurModele jeuneId={detail?.jeune_id ?? s.jeune_id} sanctionId={id} onChoisir={(m) => { setNotif({ ...notif, objet: m.objet, corps: m.corps }); setModele(m.modele_nom ?? ''); }} />
               <label>Objet<input value={notif.objet} onChange={(e) => setNotif({ ...notif, objet: e.target.value })} /></label>
               <label>Message (modifiable)<textarea rows={14} value={notif.corps} onChange={(e) => setNotif({ ...notif, corps: e.target.value })} /></label>
               {detail && detail.pieces.length > 0 && (

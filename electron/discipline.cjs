@@ -352,6 +352,8 @@ function creerDiscipline(db, h) {
       db.prepare('INSERT INTO sanction_communications (sanction_id, quand, destinataires, objet, contenu, methode, statut, pieces) VALUES (?,?,?,?,?,?,?,?)')
         .run(s.id, maintenant(), dest, String(c.objet ?? ''), String(c.corps ?? ''), methode, statut, vide(c.pieces));
       journaliser(s.id, 'Communication', `Mail préparé — ${dest}`);
+      db.prepare('INSERT INTO historique_mails (jeune_id, quand, source, destinataires, objet, contenu, pieces, modele_nom, methode, statut) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(s.jeune_id, maintenant(), 'Sanction', dest, String(c.objet ?? ''), String(c.corps ?? ''), vide(c.pieces), vide(c.modele_nom), methode, statut);
       return true;
     },
 

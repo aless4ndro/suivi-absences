@@ -5,6 +5,7 @@ import {
 } from './api';
 import ChoixDestinataires, { adressesInvalides, repartition, type Envoi } from './ChoixDestinataires';
 import { aujourdhui, formaterDate, formaterDateHeure } from './format';
+import SelecteurModele from './SelecteurModele';
 
 const VIDE = (jeuneId: number, type: TypeCommission, motif: string): Commission => ({
   jeune_id: jeuneId, type, date: null, heure_debut: null, heure_fin: null, lieu: '', motif, commentaire: '', compte_rendu: '', decision: '', suites: '',
@@ -24,6 +25,7 @@ export default function CommissionForm({ commissionId, jeuneId, type, motif, san
   const [erreur, setErreur] = useState('');
   const [info, setInfo] = useState('');
   const [mail, setMail] = useState<Mail | null>(null);
+  const [modele, setModele] = useState('');
   const [report, setReport] = useState<{ date: string; heure_debut: string; heure_fin: string; raison: string } | null>(null);
 
   async function recharger(cid: number) {
@@ -133,7 +135,7 @@ export default function CommissionForm({ commissionId, jeuneId, type, motif, san
     try {
       const r = await documents<ResultatCourriel>('courriel', { ...rep, objet: mail.objet, corps: mail.corps, piece_commission_ids: mail.pieces });
       await appeler('commissions:communication:archiver', {
-        commission_id: id, nature: mail.nature, ...rep, objet: mail.objet, corps: mail.corps, methode: r.methode,
+        commission_id: id, nature: mail.nature, ...rep, objet: mail.objet, corps: mail.corps, methode: r.methode, modele_nom: modele || undefined,
         pieces: detail.pieces.filter((p) => mail.pieces.includes(p.id)).map((p) => p.nom_fichier).join(', '),
       });
       setInfo(r.methode === 'outlook' ? 'Brouillon ouvert dans Outlook et archivé dans le dossier. Relisez-le puis envoyez-le vous-même.' : `Outlook n'a pas pu être piloté (${r.raison}). Un message a été ouvert et archivé ; joignez la convocation depuis le dossier.`);
@@ -266,6 +268,7 @@ export default function CommissionForm({ commissionId, jeuneId, type, motif, san
               <div className="entete"><h2>{mail.nature === 'participants' ? 'Information des participants' : mail.nature === 'rappel' ? 'Rappel' : 'Convocation'} — {nomApprenti}</h2><button type="button" onClick={() => setMail(null)}>Fermer</button></div>
               {mail.avertissements.map((a) => <p key={a} className="alerte-texte">⚠ {a}</p>)}
               <ChoixDestinataires destinataires={mail.destinataires} envoi={mail.envoi} onChange={(envoi) => setMail({ ...mail, envoi })} />
+              <SelecteurModele jeuneId={c.jeune_id} commissionId={id} categorie={mail.nature === 'participants' ? (c.type === 'disciplinaire' ? 'Commissions disciplinaires' : 'Commissions pédagogiques') : 'Convocations'} onChoisir={(m) => { setMail({ ...mail, objet: m.objet, corps: m.corps }); setModele(m.modele_nom ?? ''); }} />
               <label>Objet<input value={mail.objet} onChange={(e) => setMail({ ...mail, objet: e.target.value })} /></label>
               <label>Message (modifiable)<textarea rows={12} value={mail.corps} onChange={(e) => setMail({ ...mail, corps: e.target.value })} /></label>
               {mail.nature !== 'participants' && detail && detail.pieces.some((p) => !/\.docx$/i.test(p.nom_fichier)) && (

@@ -3,6 +3,7 @@ import {
   appeler, documents, NOMS_STATUT_ALERTE, type Alerte, type AlerteDetail, type Etablissement, type Intervenant, type RegleAlerte, type ResultatCourriel, type StatutAlerte,
 } from '../api';
 import { formaterDate, formaterDateHeure } from '../format';
+import SelecteurModele from '../SelecteurModele';
 
 const PERIODES = { semaine: 'par semaine', mois: 'par mois', annee: "par année scolaire" };
 
@@ -120,6 +121,7 @@ export default function Alertes({ ouvrirFiche, allerA }: { ouvrirFiche?: (type: 
                     <div className="fenetre">
                       <div className="entete"><h2>Informer les destinataires</h2><button onClick={() => setMail(null)}>Fermer</button></div>
                       <p className="discret">À : {mail.a.join(', ')}</p>
+                      <SelecteurModele jeuneId={detail.jeune_id} categorie="Retards" onChoisir={(m) => setMail({ ...mail, objet: m.objet, corps: m.corps })} />
                       <label>Objet<input value={mail.objet} onChange={(e) => setMail({ ...mail, objet: e.target.value })} /></label>
                       <label>Message (modifiable)<textarea rows={12} value={mail.corps} onChange={(e) => setMail({ ...mail, corps: e.target.value })} /></label>
                       <div className="actions"><button className="principal" onClick={ouvrirBrouillon}>Ouvrir le brouillon</button><button onClick={() => setMail(null)}>Annuler</button></div>

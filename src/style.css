@@ -198,3 +198,5 @@ fieldset.sans-cadre { border: 0; padding: 0; margin: 0; min-width: 0; }
 
 button.lien { background: none; border: none; padding: 0; color: var(--accent); font-weight: 600; cursor: pointer; }
 button.lien:hover { text-decoration: underline; }
+
+.apercu-mail { white-space: pre-wrap; background: #f6f7f9; border: 1px solid #dde1e6; border-radius: 6px; padding: 10px; font-family: inherit; }

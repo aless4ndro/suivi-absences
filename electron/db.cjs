@@ -9,6 +9,7 @@ const { creerDiscipline } = require('./discipline.cjs');
 const { creerCommissions } = require('./commissions.cjs');
 const { creerAlertes } = require('./alertes.cjs');
 const { creerTableauBord } = require('./tableau-bord.cjs');
+const { creerMails } = require('./mails.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -526,6 +527,34 @@ const MIGRATIONS = [
     action TEXT NOT NULL,
     detail TEXT
   );
+  `,
+  // v19 : bibliothèque de mails types (modèles, variables dynamiques) et historique unique des communications par apprenti.
+  `
+  CREATE TABLE modeles_mail (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nom TEXT NOT NULL,
+    categorie TEXT NOT NULL,
+    objet TEXT NOT NULL,
+    contenu TEXT NOT NULL,
+    destinataires TEXT,
+    actif INTEGER NOT NULL DEFAULT 1,
+    cree_le TEXT NOT NULL,
+    modifie_le TEXT
+  );
+  CREATE TABLE historique_mails (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    jeune_id INTEGER NOT NULL REFERENCES jeunes(id) ON DELETE CASCADE,
+    quand TEXT NOT NULL,
+    source TEXT NOT NULL,
+    destinataires TEXT NOT NULL,
+    objet TEXT NOT NULL,
+    contenu TEXT NOT NULL,
+    pieces TEXT,
+    modele_nom TEXT,
+    methode TEXT NOT NULL,
+    statut TEXT NOT NULL
+  );
+  CREATE INDEX historique_mails_jeune ON historique_mails (jeune_id, quand);
   `,
 ];
 
@@ -1328,6 +1357,7 @@ function ouvrir(chemin) {
   const alertesModule = creerAlertes(db, { aujourdhui, horaires: () => actions['horaires:get'](), etablissement: () => actions['etablissement:get']() });
   const { recalculer: recalculerAlertes, ...alertesActions } = alertesModule;
   Object.assign(actions, alertesActions);
+  Object.assign(actions, creerMails(db, { vide, dateValide, aujourdhui, classeDe, etablissement: () => actions['etablissement:get']() }));
   Object.assign(actions, creerTableauBord(db, { aujourdhui, recalculerAlertes }));
   Object.assign(actions, creerCommissions(db, { tailleMax: TAILLE_MAX_PIECE, vide, dateValide, classeDe, destinatairesDe, aujourdhui, etablissement: () => actions['etablissement:get']() }));
 

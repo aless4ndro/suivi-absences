@@ -13,6 +13,7 @@ import Sanctions from './pages/Sanctions';
 import Commissions from './pages/Commissions';
 import Alertes from './pages/Alertes';
 import TableauBord from './pages/TableauBord';
+import MailsTypes from './pages/MailsTypes';
 import Recapitulatifs from './pages/Recapitulatifs';
 import Professeurs from './pages/Professeurs';
 
@@ -27,6 +28,7 @@ const PAGES = [
   { id: 'alertes', titre: 'Alertes' },
   { id: 'commissions', titre: 'Commissions' },
   { id: 'motifs', titre: 'Motifs' },
+  { id: 'mails', titre: 'Mails types' },
   { id: 'rattrapages', titre: 'Rattrapages' },
   { id: 'calendrier', titre: 'Calendrier' },
   { id: 'envois', titre: 'Récapitulatifs' },
@@ -83,6 +85,7 @@ export default function App() {
         {page === 'calendrier' && <Calendrier />}
         {page === 'rattrapages' && <Rattrapages />}
         {page === 'sanctions' && <Sanctions ouvrirFiche={ouvrirFiche} />}
+        {page === 'mails' && <MailsTypes />}
         {page === 'discipline' && <TableauBord ouvrirFiche={ouvrirFiche} allerA={allerA} />}
         {page === 'alertes' && <Alertes ouvrirFiche={ouvrirFiche} allerA={allerA} />}
         {page === 'commissions' && <Commissions />}

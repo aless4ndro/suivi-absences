@@ -865,3 +865,35 @@ test('tableau de bord disciplinaire : indicateurs et filtres', () => {
   assert.strictEqual(db.appeler('dashboard:get', { debut: '2026-12-01' }).indicateurs.sanctions_prononcees, 0);
   db.fermer();
 });
+
+test('mails types : modèles préchargés, variables, validation, historique', () => {
+  const db = ouvrir(':memory:');
+  const classe = db.appeler('classes:list')[0];
+  const jid = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: classe.id });
+  const modeles = db.appeler('mails:modeles', {});
+  assert.strictEqual(modeles.length, 10);
+  assert.deepStrictEqual([...new Set(modeles.map((m) => m.categorie))].sort(), [...db.appeler('mails:categories')].sort());
+
+  const conv = modeles.find((m) => m.nom === 'Convocation à une commission');
+  const cid = db.appeler('commissions:save', { jeune_id: jid, type: 'disciplinaire', motif: 'Falsification', date: '2999-01-07', heure_debut: '16:00' });
+  const r = db.appeler('mails:rendre', { modele_id: conv.id, jeune_id: jid, commission_id: cid });
+  assert.match(r.objet, /commission disciplinaire – 07\/01\/2999/);
+  assert.match(r.corps, /à 16h00/);
+  assert.deepStrictEqual(r.manquantes, []);
+  const sans = db.appeler('mails:rendre', { modele_id: modeles.find((m) => m.nom === 'Notification de sanction').id, jeune_id: jid });
+  assert.ok(sans.manquantes.includes('SANCTION'));
+  assert.match(sans.corps, /\{SANCTION\}/);
+  assert.match(sans.corps, /DURAND/);
+
+  assert.throws(() => db.appeler('mails:modele:save', { nom: 'x', categorie: 'Absences', objet: 'o', contenu: 'Bonjour {INCONNU}' }), /inconnue/);
+  assert.throws(() => db.appeler('mails:modele:save', { nom: 'x', categorie: 'Autre', objet: 'o', contenu: 'c' }), /Catégorie/);
+  const nid = db.appeler('mails:modele:save', { nom: 'Mien', categorie: 'Absences', objet: 'Absence {NOM_APPRENTI}', contenu: 'Bonjour {PRENOM_APPRENTI}', actif: 0 });
+  assert.strictEqual(db.appeler('mails:modeles', { actifs: true }).some((m) => m.id === nid), false);
+
+  db.appeler('mails:archiver', { jeune_id: jid, a: ['x@y.fr'], objet: 'o', corps: 'c', modele_nom: 'Mien', methode: 'outlook' });
+  db.appeler('commissions:communication:archiver', { commission_id: cid, nature: 'convocation', a: ['z@y.fr'], objet: 'Conv', corps: '...', methode: 'outlook' });
+  const h = db.appeler('mails:historique', jid);
+  assert.strictEqual(h.length, 2);
+  assert.ok(h.some((x) => x.modele_nom === 'Mien') && h.some((x) => x.source.startsWith('Commission')));
+  db.fermer();
+});

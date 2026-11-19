@@ -244,6 +244,8 @@ function creerCommissions(db, h) {
       db.prepare('INSERT INTO commission_communications (commission_id, quand, nature, destinataires, objet, contenu, methode, statut, pieces) VALUES (?,?,?,?,?,?,?,?,?)')
         .run(c.id, maintenant(), nature, dest, String(m.objet ?? ''), String(m.corps ?? ''), methode, statut, vide(m.pieces));
       journaliser(c.id, 'Communication', `Mail préparé (${nature}) — ${dest}`);
+      db.prepare('INSERT INTO historique_mails (jeune_id, quand, source, destinataires, objet, contenu, pieces, modele_nom, methode, statut) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(c.jeune_id, maintenant(), `Commission (${nature})`, dest, String(m.objet ?? ''), String(m.corps ?? ''), vide(m.pieces), vide(m.modele_nom), methode, statut);
       // Première convocation préparée : la commission passe à « Convocations envoyées » (l'envoi réel reste la décision de l'utilisatrice).
       if (nature === 'convocation' && c.statut === 'programmee') {
         db.prepare("UPDATE commissions SET statut = 'convocations_envoyees', modifie_le = ? WHERE id = ?").run(maintenant(), c.id);

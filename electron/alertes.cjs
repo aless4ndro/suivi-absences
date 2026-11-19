@@ -171,11 +171,13 @@ function creerAlertes(db, h) {
       return true;
     },
     'alertes:communication:archiver': (m) => {
-      const a = db.prepare('SELECT id FROM alertes WHERE id = ?').get(Number(m.alerte_id));
+      const a = db.prepare('SELECT id, jeune_id FROM alertes WHERE id = ?').get(Number(m.alerte_id));
       if (!a) throw new Error('Alerte introuvable.');
       const dest = [...(m.a ?? []), ...(m.cc ?? []), ...(m.cci ?? [])];
       if (!dest.length) throw new Error('Aucun destinataire.');
       journaliser(a.id, 'Communication', `Mail préparé — ${dest.join(', ')}`);
+      db.prepare('INSERT INTO historique_mails (jeune_id, quand, source, destinataires, objet, contenu, pieces, modele_nom, methode, statut) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(a.jeune_id, maintenant(), 'Alerte de seuil', `À : ${dest.join(', ')}`, String(m.objet ?? ''), String(m.corps ?? ''), null, null, 'Outlook', 'Brouillon ouvert (envoi à valider par vous)');
       return true;
     },
   };

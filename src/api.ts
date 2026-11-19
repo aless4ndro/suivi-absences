@@ -297,3 +297,8 @@ export type LigneDashCommission = {
   id: number; jeune_id: number; jeune_nom: string; jeune_prenom: string; classe_code: string; type: TypeCommission; date: string | null; heure_debut: string | null;
   statut: StatutCommission; motif: string; nb_convocations: number; participants: string | null;
 };
+
+// ---- Bibliothèque de mails types ----
+export type ModeleMail = { id?: number; nom: string; categorie: string; objet: string; contenu: string; destinataires: string | null; actif: number };
+export type MailRendu = { objet: string; corps: string; destinataires: string | null; modele_nom: string | null; manquantes: string[] };
+export type MailHistorique = { id: number; quand: string; source: string; destinataires: string; objet: string; contenu: string; pieces: string | null; modele_nom: string | null; methode: string; statut: string };
