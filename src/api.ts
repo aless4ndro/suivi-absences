@@ -270,3 +270,17 @@ export type RappelsCommissions = {
   a_programmer: LigneRappel[]; a_convoquer: LigneRappel[]; a_venir: LigneRappel[]; a_realiser: LigneRappel[]; jours: number;
 };
 export type LigneRappel = { id: number; jeune: string; type: TypeCommission; date: string | null; heure_debut: string | null; motif: string };
+
+// ---- Alertes de seuils ----
+export type StatutAlerte = 'nouvelle' | 'a_traiter' | 'en_cours' | 'traitee' | 'sans_suite' | 'cloturee';
+export const NOMS_STATUT_ALERTE: Record<StatutAlerte, string> = { nouvelle: 'Nouvelle', a_traiter: 'À traiter', en_cours: 'En cours', traitee: 'Traitée', sans_suite: 'Sans suite', cloturee: 'Clôturée' };
+export type RegleAlerte = { id: number; code: 'retards' | 'demi_journees' | 'cumul'; libelle: string; seuil: number; periode: 'semaine' | 'mois' | 'annee'; actif: number; destinataires: number[] };
+export type Alerte = {
+  id: number; regle_id: number; jeune_id: number; periode_cle: string; valeur: number; seuil: number; statut: StatutAlerte; note: string | null; cree_le: string;
+  regle_code: string; regle_libelle: string; jeune_nom: string; jeune_prenom: string; periode_libelle: string;
+};
+export type AlerteDetail = Alerte & {
+  faits: { date: string; nature: string; detail: string; motif: string | null }[];
+  destinataires: { id: number; nom: string; fonction: string | null; email: string | null }[];
+  journal: { id: number; quand: string; action: string; detail: string | null }[];
+};

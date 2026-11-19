@@ -8,10 +8,12 @@ export default function Accueil({ allerA, ouvrirFiche }: { allerA: (page: string
   const [stats, setStats] = useState<Stats | null>(null);
   const [alertes, setAlertes] = useState<Alertes | null>(null);
   const [pp, setPp] = useState<AlertesPP | null>(null);
+  const [seuils, setSeuils] = useState<{ nouvelles: number; en_cours: number } | null>(null);
   const [com, setCom] = useState<RappelsCommissions | null>(null);
   useEffect(() => {
     appeler<AlertesPP>('pp:alertes').then(setPp);
     appeler<Stats>('stats').then(setStats);
+    appeler<{ nouvelles: number; en_cours: number }>('alertes:compteurs').then(setSeuils);
     appeler<RappelsCommissions>('commissions:rappels').then(setCom);
     appeler<Alertes>('evenements:alertes').then(setAlertes);
   }, []);
@@ -33,6 +35,20 @@ export default function Accueil({ allerA, ouvrirFiche }: { allerA: (page: string
             <strong>À notifier</strong>
             <span className="discret">entreprise pas encore prévenue</span>
           </button>
+          {seuils && seuils.nouvelles > 0 && (
+            <button className="carte alerte" onClick={() => allerA('alertes')}>
+              <span className="chiffre">{seuils.nouvelles}</span>
+              <strong>Alertes de seuil</strong>
+              <span className="discret">nouvelles (retards, absences non recevables)</span>
+            </button>
+          )}
+          {seuils && seuils.en_cours > 0 && (
+            <button className="carte" onClick={() => allerA('alertes')}>
+              <span className="chiffre">{seuils.en_cours}</span>
+              <strong>Alertes à suivre</strong>
+              <span className="discret">à traiter ou en cours</span>
+            </button>
+          )}
           {pp && pp.sans_pp.length > 0 && (
             <button className="carte alerte" onClick={() => allerA('professeurs')}>
               <span className="chiffre">{pp.sans_pp.length}</span>

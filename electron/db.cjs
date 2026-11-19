@@ -7,6 +7,7 @@ const { creerRattrapages } = require('./rattrapages.cjs');
 const { creerProfesseurs, anneeScolaire } = require('./professeurs.cjs');
 const { creerDiscipline } = require('./discipline.cjs');
 const { creerCommissions } = require('./commissions.cjs');
+const { creerAlertes } = require('./alertes.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -484,6 +485,46 @@ const MIGRATIONS = [
     ajoute_le TEXT
   );
   CREATE INDEX commission_pieces_commission ON commission_pieces (commission_id);
+  `,
+  // v18 : alertes automatiques de seuils (retards, absences non recevables, cumul) — règles, alertes suivies, journal.
+  `
+  CREATE TABLE regles_alerte (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE CHECK (code IN ('retards', 'demi_journees', 'cumul')),
+    libelle TEXT NOT NULL,
+    seuil INTEGER NOT NULL CHECK (seuil >= 1),
+    periode TEXT NOT NULL CHECK (periode IN ('semaine', 'mois', 'annee')),
+    actif INTEGER NOT NULL DEFAULT 1
+  );
+  INSERT INTO regles_alerte (code, libelle, seuil, periode) VALUES
+    ('retards', 'Retards', 3, 'mois'),
+    ('demi_journees', 'Absences non recevables (demi-journées)', 1, 'mois'),
+    ('cumul', 'Cumul retards + absences non recevables', 4, 'mois');
+  CREATE TABLE regle_destinataires (
+    regle_id INTEGER NOT NULL REFERENCES regles_alerte(id) ON DELETE CASCADE,
+    intervenant_id INTEGER NOT NULL REFERENCES intervenants(id) ON DELETE CASCADE,
+    PRIMARY KEY (regle_id, intervenant_id)
+  );
+  CREATE TABLE alertes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    regle_id INTEGER NOT NULL REFERENCES regles_alerte(id),
+    jeune_id INTEGER NOT NULL REFERENCES jeunes(id),
+    periode_cle TEXT NOT NULL,
+    valeur INTEGER NOT NULL,
+    seuil INTEGER NOT NULL,
+    statut TEXT NOT NULL DEFAULT 'nouvelle' CHECK (statut IN ('nouvelle', 'a_traiter', 'en_cours', 'traitee', 'sans_suite', 'cloturee')),
+    note TEXT,
+    cree_le TEXT NOT NULL,
+    modifie_le TEXT,
+    UNIQUE (regle_id, jeune_id, periode_cle)
+  );
+  CREATE TABLE alerte_journal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alerte_id INTEGER NOT NULL REFERENCES alertes(id) ON DELETE CASCADE,
+    quand TEXT NOT NULL,
+    action TEXT NOT NULL,
+    detail TEXT
+  );
   `,
 ];
 
@@ -1283,6 +1324,7 @@ function ouvrir(chemin) {
   const professeurs = creerProfesseurs(db, { vide, dateValide, cle });
   Object.assign(actions, professeurs.actions);
   Object.assign(actions, creerDiscipline(db, { vide, dateValide, cle, classeDe, destinatairesDe, aujourdhui, tailleMax: TAILLE_MAX_PIECE }));
+  Object.assign(actions, creerAlertes(db, { aujourdhui, horaires: () => actions['horaires:get'](), etablissement: () => actions['etablissement:get']() }));
   Object.assign(actions, creerCommissions(db, { tailleMax: TAILLE_MAX_PIECE, vide, dateValide, classeDe, destinatairesDe, aujourdhui, etablissement: () => actions['etablissement:get']() }));
 
   return {

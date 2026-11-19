@@ -42,7 +42,7 @@ npm run dist   # produit release/SuiviAbsences.exe (sous Windows)
 - [ ] Statistiques (exports Word / PDF / Excel)
 - [x] Sanctions, lot 1 : motifs et paliers, proposition de palier, décision humaine, historique tracé, pièces, communication à l'employeur, professeur principal et représentant légal des mineurs
 - [x] Sanctions, lot 2 : commissions pédagogiques et disciplinaires (programmation, participants, statuts, report, compte rendu, convocations Word d'après les modèles de l'établissement, mails Outlook, rappels sur l'Accueil, calendrier)
-- [ ] Sanctions, lot 3 : alertes de seuils (retards, absences non recevables, cumul)
+- [x] Sanctions, lot 3 : alertes automatiques de seuils (retards, absences non recevables en demi-journées, cumul ; seuils et périodes réglables, destinataires, statuts de suivi, journal)
 - [ ] Sanctions, lots 4 et 5 : tableau de bord disciplinaire, bibliothèque de mails types
 - [ ] Heures de rattrapage non faites à la sortie d'un apprenti
 - [ ] Désignation des professeurs principaux après la bascule

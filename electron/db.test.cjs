@@ -802,3 +802,45 @@ test('commissions : programmation, statuts, report, convocation Word archivée, 
   assert.throws(() => db.appeler('commissions:reglages:save', { rappel_jours: 99 }));
   db.fermer();
 });
+
+test('alertes de seuils : retards, demi-journées non recevables, cumul, suivi', () => {
+  const db = ouvrir(':memory:');
+  const classe = db.appeler('classes:list')[0];
+  const jid = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: classe.id });
+  const irrec = db.appeler('motifs:list').find((m) => m.statut === 'irrecevable').id;
+  const rec = db.appeler('motifs:list').find((m) => m.statut === 'recevable').id;
+  const ref = new Date(Date.now() - 35 * 86400000).toISOString().slice(0, 10); // un mois entier déjà écoulé, dans la fenêtre d'analyse
+  const ym = ref.slice(0, 7);
+  const jour = (n) => `${ym}-${String(n).padStart(2, '0')}`;
+  const d1 = 3;
+
+  assert.deepStrictEqual(db.appeler('alertes:regles').map((r) => [r.code, r.seuil, r.periode]), [['retards', 3, 'mois'], ['demi_journees', 1, 'mois'], ['cumul', 4, 'mois']]);
+  db.appeler('evenements:save', { jeune_id: jid, type: 'retard', creneaux: [{ date: jour(d1), heure_debut: '08:30', heure_fin: '08:45' }] });
+  db.appeler('evenements:save', { jeune_id: jid, type: 'retard', creneaux: [{ date: jour(d1), heure_debut: '14:00', heure_fin: '14:10' }] });
+  assert.strictEqual(db.appeler('alertes:list', {}).length, 0);
+  db.appeler('evenements:save', { jeune_id: jid, type: 'retard', creneaux: [{ date: jour(d1), heure_debut: '16:00', heure_fin: '16:05' }] });
+  let l = db.appeler('alertes:list', {});
+  assert.deepStrictEqual(l.map((a) => [a.regle_code, a.valeur, a.statut]), [['retards', 3, 'nouvelle']]);
+
+  // absence justifiée : pas comptée ; non recevable sur une journée entière = 2 demi-journées (matin + après-midi), un seul événement
+  db.appeler('evenements:save', { jeune_id: jid, type: 'absence', motif_id: rec, creneaux: [{ date: jour(4), heure_debut: '08:30', heure_fin: '18:00' }] });
+  assert.strictEqual(db.appeler('alertes:list', {}).length, 1);
+  db.appeler('evenements:save', { jeune_id: jid, type: 'absence', motif_id: irrec, creneaux: [{ date: jour(5), heure_debut: '08:30', heure_fin: '18:00' }] });
+  l = db.appeler('alertes:list', {});
+  assert.deepStrictEqual(l.map((a) => [a.regle_code, a.valeur]).sort(), [['cumul', 5], ['demi_journees', 2], ['retards', 3]]);
+
+  const a = l.find((x) => x.regle_code === 'retards');
+  const det = db.appeler('alertes:get', a.id);
+  assert.strictEqual(det.faits.length, 3);
+  db.appeler('alertes:statut', { id: a.id, statut: 'traitee', note: 'Entretien avec l\'apprentie' });
+  assert.strictEqual(db.appeler('alertes:get', a.id).statut, 'traitee');
+  assert.ok(db.appeler('alertes:get', a.id).journal.some((j) => j.action === 'Statut'));
+  assert.deepStrictEqual(db.appeler('alertes:compteurs'), { nouvelles: 2, en_cours: 0 });
+
+  // règle modifiable : seuil relevé → plus de nouvelle alerte ; seuil invalide refusé
+  const r = db.appeler('alertes:regles').find((x) => x.code === 'cumul');
+  assert.throws(() => db.appeler('alertes:regle:save', { ...r, seuil: 0 }));
+  db.appeler('alertes:regle:save', { ...r, seuil: 10 });
+  assert.strictEqual(db.appeler('alertes:list', { regle_id: r.id }).length, 0);
+  db.fermer();
+});
