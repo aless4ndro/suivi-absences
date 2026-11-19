@@ -174,3 +174,10 @@ tr.clic:hover td { background: #f3f8ff; }
 .carte-apprenti img, .carte-apprenti .photo-vide { width: 56px; height: 56px; font-size: 18px; }
 .carte-apprenti .infos { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .carte-apprenti .infos .etiquette { align-self: flex-start; }
+
+/* Vacances scolaires : fond gris, la couleur du type de journée reste visible en bas de la case */
+.pastille.vacances { background: #c4c8cf; }
+.jour.vacances { background: #c4c8cf; color: #3a3f47; }
+.jour.vacances.centre { box-shadow: inset 0 -4px 0 #ffc000; }
+.jour.vacances.entreprise { box-shadow: inset 0 -4px 0 #87ceeb; }
+.jour.vacances.autre { box-shadow: inset 0 -4px 0 #d9a7e0; }

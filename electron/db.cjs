@@ -311,6 +311,23 @@ const MIGRATIONS = [
     donnees TEXT NOT NULL
   );
   `,
+  // v15 : vacances scolaires (zone B, académie de Normandie), affichées en gris dans le calendrier.
+  // Dates du calendrier officiel 2026-2027 : du samedi de départ au dimanche précédant la reprise.
+  `
+  CREATE TABLE vacances_scolaires (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    debut TEXT NOT NULL,
+    fin TEXT NOT NULL,
+    libelle TEXT NOT NULL
+  );
+  INSERT INTO vacances_scolaires (debut, fin, libelle) VALUES
+    ('2026-10-17', '2026-11-01', 'Vacances de la Toussaint'),
+    ('2026-12-19', '2027-01-03', 'Vacances de Noël'),
+    ('2027-02-20', '2027-03-07', 'Vacances d''hiver'),
+    ('2027-04-17', '2027-05-02', 'Vacances de printemps'),
+    ('2027-05-07', '2027-05-07', 'Pont de l''Ascension'),
+    ('2027-07-03', '2027-08-31', 'Vacances d''été');
+  `,
 ];
 
 // Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
@@ -624,6 +641,8 @@ function ouvrir(chemin) {
     'destinataires:list': (arg) => (typeof arg === 'object' && arg
       ? destinatairesDe(Number(arg.jeune_id), arg.date)
       : destinatairesDe(Number(arg))),
+
+    'vacances:list': () => db.prepare('SELECT id, debut, fin, libelle FROM vacances_scolaires ORDER BY debut').all(),
 
     'calendrier:annee': (classeId) =>
       db.prepare('SELECT date, type, libelle FROM calendrier_jours WHERE classe_id = ? ORDER BY date').all(Number(classeId)),

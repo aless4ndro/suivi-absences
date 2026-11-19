@@ -29,10 +29,20 @@ npm run dist   # produit release/SuiviAbsences.exe (sous Windows)
 - [x] Section Motifs (recevable / irrecevable)
 - [x] Absences et retards (créneaux date + heure de début et de fin, durée calculée automatiquement à la minute, contrôle des doublons, motifs, observations, mail copié, pièces jointes, alertes sur l'accueil)
 - [x] Notification de l'entreprise par mail : brouillon ouvert dans l'ancien Outlook (PowerShell), pièces jointes cochées à la main, repli sur mailto
-- [ ] À vérifier sous Windows avec le vrai Outlook (non testable hors Windows)
-- [ ] Rattrapages (créneaux, total ou partiel, convocation, émargement)
-- [ ] Calendrier d'année scolaire
-- [ ] Récapitulatif mensuel envoyé aux entreprises via Outlook
+- [ ] À vérifier sous Windows avec le vrai Outlook (non testable hors Windows), y compris Cc / Cci
+- [x] Rattrapages (créneaux, total ou partiel, convocation, émargement)
+- [x] Calendriers d'alternance 2026-2027 et vacances scolaires zone B (en gris)
+- [x] Récapitulatifs mensuels envoyés aux entreprises via Outlook
+- [x] Professeurs principaux (affectations datées, remplacement, alertes)
+- [x] Historique de classes, bascule de rentrée, sorties de formation
+- [x] Historique entreprise / maître d'apprentissage, contrats, photo
+- [x] Fiche apprenti : absences et retards, tableau de bord d'assiduité (PDF) ; fiche entreprise : apprentis rattachés
+- [x] Recherche (Accueil, Apprentis, Entreprises)
+- [ ] Calendriers DTS IMRT (à fournir) et calendriers 2027-2028
+- [ ] Statistiques (exports Word / PDF / Excel)
+- [ ] Sanctions (notification du professeur principal)
+- [ ] Heures de rattrapage non faites à la sortie d'un apprenti
+- [ ] Désignation des professeurs principaux après la bascule
 
 ## Mot de passe oublié
 

@@ -639,3 +639,13 @@ test('fiche apprenti et fiche entreprise : assiduité, contrats (en cours, à ve
   assert.strictEqual(db.appeler('jeunes:photo', a), null);
   db.fermer();
 });
+
+test('vacances scolaires zone B : chargées à la migration', () => {
+  const db = ouvrir(':memory:');
+  const v = db.appeler('vacances:list');
+  assert.strictEqual(v.length, 6);
+  assert.deepStrictEqual([v[0].debut, v[0].fin, v[0].libelle], ['2026-10-17', '2026-11-01', 'Vacances de la Toussaint']);
+  assert.ok(v.every((x) => x.debut <= x.fin));
+  assert.ok(v.some((x) => x.debut === '2027-02-20' && x.fin === '2027-03-07')); // hiver zone B
+  assert.ok(v.some((x) => x.debut === '2027-04-17' && x.fin === '2027-05-02')); // printemps zone B
+});

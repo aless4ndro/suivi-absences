@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { appeler, type Classe, type Evenement, type JourCalendrier } from '../api';
+import { appeler, type Classe, type Evenement, type JourCalendrier, type Vacances } from '../api';
 import { aujourdhui, feries, formaterDate, NOMS_MOIS } from '../format';
 
 const MOIS_ANNEE: [number, number][] = [
@@ -16,9 +16,12 @@ export default function Calendrier() {
   const [choisi, setChoisi] = useState<string | null>(null);
   const [libelle, setLibelle] = useState('');
   const [erreur, setErreur] = useState('');
+  const [vacances, setVacances] = useState<Vacances[]>([]);
+  const vacancesDe = (iso: string) => vacances.find((v) => v.debut <= iso && iso <= v.fin);
 
   const jf = useMemo(() => new Map([...feries(2026), ...feries(2027)]), []);
 
+  useEffect(() => { appeler<Vacances[]>('vacances:list').then(setVacances); }, []);
   useEffect(() => {
     appeler<Classe[]>('classes:list').then((c) => {
       setClasses(c);
@@ -73,6 +76,7 @@ export default function Calendrier() {
         <span><i className="pastille centre" /> Centre de formation ({comptes.centre} j)</span>
         <span><i className="pastille entreprise" /> Entreprise ({comptes.entreprise} j)</span>
         <span><i className="pastille autre" /> Autre ({comptes.autre} j)</span>
+        <span><i className="pastille vacances" /> Vacances scolaires (zone B)</span>
         <span><i className="pastille ferie" /> Jour férié</span>
         <span><i className="pastille absence" /> Absence ou retard saisi</span>
       </div>
@@ -96,10 +100,11 @@ export default function Calendrier() {
                   const iso = `${an}-${p2(m)}-${p2(i + 1)}`;
                   const j = jours.get(iso);
                   const ferie = jf.get(iso);
-                  const titre = [j ? TYPES[j.type] : '', j?.libelle, ferie].filter(Boolean).join(' · ');
+                  const vac = vacancesDe(iso);
+                  const titre = [j ? TYPES[j.type] : '', j?.libelle, ferie, vac?.libelle].filter(Boolean).join(' · ');
                   return (
                     <button key={iso} type="button" title={titre || undefined}
-                      className={['jour', j?.type ?? '', ferie ? 'ferie' : '', absences.has(iso) ? 'absence' : '', iso === choisi ? 'choisi' : '', iso === aujourd ? 'aujourdhui' : ''].join(' ')}
+                      className={['jour', j?.type ?? '', vac ? 'vacances' : '', ferie ? 'ferie' : '', absences.has(iso) ? 'absence' : '', iso === choisi ? 'choisi' : '', iso === aujourd ? 'aujourdhui' : ''].join(' ')}
                       onClick={() => selectionner(iso)}>
                       {i + 1}
                     </button>
@@ -117,6 +122,7 @@ export default function Calendrier() {
           <p>
             {jourChoisi ? <strong>{TYPES[jourChoisi.type]}</strong> : <span className="discret">Aucun type défini pour ce jour.</span>}
             {jf.get(choisi) && <> · férié : {jf.get(choisi)}</>}
+            {vacancesDe(choisi) && <> · {vacancesDe(choisi)!.libelle} (zone B)</>}
             {absences.has(choisi) && <> · absence ou retard saisi ce jour-là</>}
           </p>
           <label>Libellé (facultatif)

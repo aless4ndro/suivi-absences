@@ -110,6 +110,7 @@ export type Affectation = {
 export type AlertesPP = { annee: string; date_reference: string; sans_pp: string[]; sans_email: string[]; inactifs: string[] };
 export type Horaires = { debut: string; pause_debut: string; pause_fin: string; fin: string };
 
+export type Vacances = { id: number; debut: string; fin: string; libelle: string };
 export type JourCalendrier = { date: string; type: 'centre' | 'entreprise' | 'autre'; libelle: string | null };
 
 export type Piece = { id: number; nom_fichier: string; taille: number };
