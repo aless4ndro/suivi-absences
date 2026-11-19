@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const { ouvrir, TAILLE_MAX_PIECE } = require('./db.cjs');
 const { creerSession } = require('./auth.cjs');
 const { verifierSauvegarde, remplacer } = require('./sauvegarde.cjs');
+const { lirePdf } = require('./calendrier-pdf.cjs');
 const { lireXlsx } = require('./calendrier-import.cjs');
 const { composer, repartir, preparerBrouillon, nomSur, convertirWordEnPdf } = require('./courriel.cjs');
 const { execFile } = require('node:child_process');
@@ -280,7 +281,7 @@ function brancherIpc() {
       const ext = path.extname(nom).toLowerCase();
       if (fs.statSync(chemin).size > 25 * 1024 * 1024) throw new Error('Fichier trop volumineux (25 Mo maximum).');
       if (ext === '.xls') throw new Error("Ce fichier est au format Excel ancien (.xls). Ouvrez-le dans Excel puis « Enregistrer sous » au format .xlsx, et importez ce nouveau fichier.");
-      if (ext === '.pdf') throw new Error("La lecture automatique des PDF n'est pas encore disponible dans cette version. Utilisez la version Excel (.xlsx) du calendrier, ou saisissez les jours dans l'aperçu.");
+      if (ext === '.pdf') return { nom, ...(await lirePdf(fs.readFileSync(chemin), arg.annee_scolaire)) };
       if (ext !== '.xlsx') throw new Error('Format non pris en charge : choisissez un fichier .xlsx.');
       return { nom, ...lireXlsx(fs.readFileSync(chemin), arg.annee_scolaire) };
     }

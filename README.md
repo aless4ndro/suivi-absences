@@ -40,7 +40,7 @@ npm run dist   # produit release/SuiviAbsences.exe (sous Windows)
 - [x] Recherche (Accueil, Apprentis, Entreprises)
 - [x] Calendriers DTS IMRT 2026-2027 (1re, 2e et 3e années)
 - [x] Import de calendriers Excel (aperçu, correction, versions, restauration)
-- [ ] Import de calendriers PDF (en attente d’une bibliothèque PDF)
+- [x] Import de calendriers PDF (cases colorées, mois en colonnes ; PDF image non lisible)
 - [ ] Calendriers 2027-2028
 - [ ] Statistiques (exports Word / PDF / Excel)
 - [x] Sanctions, lot 1 : motifs et paliers, proposition de palier, décision humaine, historique tracé, pièces, communication à l'employeur, professeur principal et représentant légal des mineurs

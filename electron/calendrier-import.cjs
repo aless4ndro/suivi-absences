@@ -160,4 +160,4 @@ function resultat(jours, couleurs, avertissements, feuille) {
   return { feuille, jours: jours.sort((a, b) => a.date.localeCompare(b.date)), legende, avertissements };
 }
 
-module.exports = { lireXlsx, typePropose };
+module.exports = { lireXlsx, typePropose, resultat, sansAccent };
