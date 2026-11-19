@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { appeler, auth, fichiers, type Etablissement, type Horaires } from '../api';
+import { appeler, auth, fichiers, type Etablissement, type Horaires, type Intervenant } from '../api';
 
 export default function Parametres({ apresRestauration }: { apresRestauration: () => void }) {
   const [dossier, setDossier] = useState('');
@@ -16,11 +16,24 @@ export default function Parametres({ apresRestauration }: { apresRestauration: (
   const [horaires, setHoraires] = useState<Horaires | null>(null);
   const [infoHoraires, setInfoHoraires] = useState('');
   const [erreurHoraires, setErreurHoraires] = useState('');
+  const [intervenants, setIntervenants] = useState<Intervenant[]>([]);
+  const [intervenant, setIntervenant] = useState<Intervenant | null>(null);
+  const [erreurInterv, setErreurInterv] = useState('');
+  const chargerIntervenants = () => appeler<Intervenant[]>('intervenants:list').then(setIntervenants);
+  async function enregistrerIntervenant(e: FormEvent) {
+    e.preventDefault();
+    try { await appeler('intervenants:save', intervenant); setIntervenant(null); setErreurInterv(''); chargerIntervenants(); } catch (err) { setErreurInterv((err as Error).message); }
+  }
+  async function supprimerIntervenant(i: Intervenant) {
+    if (!confirm(`Supprimer « ${i.nom} » ?`)) return;
+    try { await appeler('intervenants:delete', (i as Intervenant & { id: number }).id); setErreurInterv(''); chargerIntervenants(); } catch (err) { setErreurInterv((err as Error).message); }
+  }
 
   useEffect(() => {
     fichiers<{ dossier: string }>('emplacement').then((r) => setDossier(r.dossier));
     appeler<Horaires>('horaires:get').then(setHoraires);
     appeler<Etablissement>('etablissement:get').then(setEtab);
+    chargerIntervenants();
   }, []);
 
   async function enregistrerEtab(e: FormEvent) {
@@ -139,6 +152,44 @@ export default function Parametres({ apresRestauration }: { apresRestauration: (
           </form>
         </section>
       )}
+
+      <section className="fiche">
+        <h2>Intervenants</h2>
+        <p className="discret">
+          Les personnes de l'équipe (direction, responsables, formateurs) qui peuvent être désignées comme responsable d'une sanction
+          ou participantes d'une commission. Il n'y a pas de connexion individuelle : l'application reste protégée par un seul mot de passe.
+        </p>
+        {intervenants.length > 0 && (
+          <ul className="pieces">
+            {intervenants.map((i) => (
+              <li key={(i as Intervenant & { id: number }).id}>
+                <span><strong>{i.nom}</strong>{i.fonction && <> — {i.fonction}</>} <span className="discret">{i.email}</span>{!i.actif && <span className="etiquette">inactif</span>}</span>
+                <span>
+                  <button type="button" onClick={() => { setIntervenant({ ...i }); setErreurInterv(''); }}>Modifier</button>
+                  <button type="button" className="danger" onClick={() => supprimerIntervenant(i)}>Supprimer</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {intervenant ? (
+          <form onSubmit={enregistrerIntervenant}>
+            <div className="grille">
+              <label>Nom *<input required autoFocus value={intervenant.nom} onChange={(e) => setIntervenant({ ...intervenant, nom: e.target.value })} /></label>
+              <label>Fonction<input value={intervenant.fonction ?? ''} onChange={(e) => setIntervenant({ ...intervenant, fonction: e.target.value })} /></label>
+              <label>E-mail<input type="email" value={intervenant.email ?? ''} onChange={(e) => setIntervenant({ ...intervenant, email: e.target.value })} /></label>
+              <label className="case"><input type="checkbox" checked={!!intervenant.actif} onChange={(e) => setIntervenant({ ...intervenant, actif: e.target.checked ? 1 : 0 })} /> Actif</label>
+            </div>
+            {erreurInterv && <p className="erreur">{erreurInterv}</p>}
+            <div className="actions"><button type="submit" className="principal">Enregistrer</button><button type="button" onClick={() => setIntervenant(null)}>Annuler</button></div>
+          </form>
+        ) : (
+          <>
+            {erreurInterv && <p className="erreur">{erreurInterv}</p>}
+            <div className="actions"><button type="button" onClick={() => { setIntervenant({ nom: '', fonction: '', email: '', actif: 1 }); setErreurInterv(''); }}>Ajouter un intervenant</button></div>
+          </>
+        )}
+      </section>
 
       <section className="fiche">
         <h2>Mot de passe</h2>

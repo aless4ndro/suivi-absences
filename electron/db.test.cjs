@@ -649,3 +649,113 @@ test('vacances scolaires zone B : chargées à la migration', () => {
   assert.ok(v.some((x) => x.debut === '2027-02-20' && x.fin === '2027-03-07')); // hiver zone B
   assert.ok(v.some((x) => x.debut === '2027-04-17' && x.fin === '2027-05-02')); // printemps zone B
 });
+
+test('discipline : motifs, proposition de palier, décision humaine, journal, clôture', () => {
+  const db = ouvrir(':memory:');
+  const classes = db.appeler('classes:list');
+  const a = db.appeler('jeunes:save', { nom: 'Martin', prenom: 'Zoé', classe_id: classes[0].id });
+  const paliers = db.appeler('paliers:list');
+  assert.deepStrictEqual(paliers.map((p) => p.ordre), [1, 2, 3, 4, 5]);
+  const motifs = db.appeler('sanctions:motifs');
+  assert.ok(motifs.length >= 8);
+  const retards = motifs.find((m) => m.intitule === 'Retards répétés');
+  assert.strictEqual(retards.palier_ordre, 1);
+
+  // Aucun antécédent : palier du motif
+  let prop = db.appeler('sanctions:proposer', { jeune_id: a, motif_id: retards.id, date_faits: '2026-10-05' });
+  assert.strictEqual(prop.ordre, 1);
+
+  // La sanction n'est jamais prononcée automatiquement
+  const s1 = db.appeler('sanctions:save', { jeune_id: a, date_faits: '2026-10-05', motif_id: retards.id });
+  let g = db.appeler('sanctions:get', s1);
+  assert.strictEqual(g.decision, 'en_attente');
+  assert.strictEqual(g.palier_propose_ordre, 1);
+  assert.strictEqual(g.palier_retenu_id, null);
+  assert.throws(() => db.appeler('sanctions:cloturer', s1), /décision/);
+
+  // Décision humaine : avertissement
+  db.appeler('sanctions:save', { ...g, id: s1, jeune_id: a, decision: 'sanction', palier_retenu_id: paliers[0].id, date_decision: '2026-10-06' });
+  g = db.appeler('sanctions:get', s1);
+  assert.strictEqual(g.decision, 'sanction');
+  assert.strictEqual(g.palier_retenu_ordre, 1);
+  assert.ok(g.journal.some((j) => j.action === 'Décision'));
+
+  // Même motif dans la période → palier supérieur proposé, avec raisons
+  prop = db.appeler('sanctions:proposer', { jeune_id: a, motif_id: retards.id, date_faits: '2026-11-10' });
+  assert.strictEqual(prop.ordre, 2);
+  assert.ok(prop.raisons.some((r) => /même motif/i.test(r)));
+  assert.strictEqual(prop.precedentes.length, 1);
+
+  // Autre motif : jamais en dessous du palier atteint
+  const absences = motifs.find((m) => m.intitule === 'Absences injustifiées');
+  prop = db.appeler('sanctions:proposer', { jeune_id: a, motif_id: absences.id, date_faits: '2026-11-10' });
+  assert.strictEqual(prop.ordre, 1);
+
+  // Ancienneté : au-delà de la durée réglée, la sanction ne compte plus
+  prop = db.appeler('sanctions:proposer', { jeune_id: a, motif_id: retards.id, date_faits: '2027-11-10' });
+  assert.strictEqual(prop.ordre, 1);
+  assert.strictEqual(prop.precedentes[0].dans_periode, false);
+  db.appeler('discipline:reglages:save', { historique_mois: 24 });
+  prop = db.appeler('sanctions:proposer', { jeune_id: a, motif_id: retards.id, date_faits: '2027-11-10' });
+  assert.strictEqual(prop.ordre, 2);
+  assert.throws(() => db.appeler('discipline:reglages:save', { historique_mois: 0 }));
+
+  // Choix différent de la proposition : justification conservée et modification tracée
+  const s2 = db.appeler('sanctions:save', { jeune_id: a, date_faits: '2026-11-10', motif_id: retards.id });
+  assert.strictEqual(db.appeler('sanctions:get', s2).palier_propose_ordre, 2);
+  db.appeler('sanctions:save', { id: s2, jeune_id: a, date_faits: '2026-11-10', motif_id: retards.id, decision: 'sanction', palier_retenu_id: paliers[0].id, justification: 'Circonstances atténuantes' });
+  g = db.appeler('sanctions:get', s2);
+  assert.strictEqual(g.palier_retenu_ordre, 1);
+  assert.strictEqual(g.palier_propose_ordre, 2);
+  assert.strictEqual(g.justification, 'Circonstances atténuantes');
+  db.appeler('sanctions:save', { id: s2, jeune_id: a, date_faits: '2026-11-10', motif_id: retards.id, decision: 'sanction', palier_retenu_id: paliers[1].id, justification: 'Circonstances atténuantes' });
+  assert.ok(db.appeler('sanctions:get', s2).journal.some((j) => j.action === 'Modification' && /Avertissement → Blâme/.test(j.detail)));
+
+  // Validations
+  assert.throws(() => db.appeler('sanctions:save', { jeune_id: a, date_faits: '2099-01-01', motif_id: retards.id }), /futur/);
+  assert.throws(() => db.appeler('sanctions:save', { jeune_id: a, date_faits: '2026-11-10', motif_id: retards.id, decision: 'sanction' }), /palier/);
+
+  // Communication : palier 2 = facultative ; palier 3 = obligatoire, clôture bloquée tant qu'elle n'est pas faite
+  g = db.appeler('sanctions:get', s2);
+  assert.strictEqual(g.communication, 'facultative');
+  const s3 = db.appeler('sanctions:save', { jeune_id: a, date_faits: '2026-11-12', motif_id: retards.id, decision: 'sanction', palier_retenu_id: paliers[2].id });
+  assert.strictEqual(db.appeler('sanctions:get', s3).communication_manquante, true);
+  assert.throws(() => db.appeler('sanctions:cloturer', s3), /obligatoire/);
+  db.appeler('sanctions:communication:archiver', { sanction_id: s3, a: ['maitre@exemple.fr'], cc: [], cci: [], objet: 'Information', corps: 'Bonjour', methode: 'mailto' });
+  assert.strictEqual(db.appeler('sanctions:get', s3).communication_manquante, false);
+  db.appeler('sanctions:cloturer', s3);
+  assert.throws(() => db.appeler('sanctions:save', { id: s3, jeune_id: a, date_faits: '2026-11-12', motif_id: retards.id, decision: 'rappel' }), /clôturé/);
+  assert.strictEqual(db.appeler('sanctions:list', { jeune_id: a }).length, 3); // toujours consultable
+  db.appeler('sanctions:rouvrir', s3);
+  assert.throws(() => db.appeler('sanctions:supprimer', s3)); // décision prise : pas de suppression
+
+  // Motif utilisé : désactivation possible, suppression refusée
+  assert.throws(() => db.appeler('sanctions:motif:delete', retards.id), /désactivez/);
+  db.appeler('sanctions:motif:save', { ...retards, actif: 0 });
+  assert.strictEqual(db.appeler('sanctions:motifs').find((m) => m.id === retards.id).actif, 0);
+});
+
+test('discipline : intervenants, pièces, représentant légal des mineurs', () => {
+  const db = ouvrir(':memory:');
+  const classes = db.appeler('classes:list');
+  const j = db.appeler('jeunes:save', { nom: 'Petit', prenom: 'Léo', classe_id: classes[0].id, date_naissance: '2010-03-01', representant_nom: 'Mme Petit', representant_email: 'parent@exemple.fr' });
+  assert.throws(() => db.appeler('jeunes:save', { nom: 'X', prenom: 'Y', classe_id: classes[0].id, date_naissance: '2099-01-01' }), /naissance/);
+  const i = db.appeler('intervenants:save', { nom: 'Mme Directrice', fonction: 'Direction', email: 'dir@exemple.fr' });
+  assert.throws(() => db.appeler('intervenants:save', { nom: 'Z', email: 'pas-un-mail' }));
+  const motif = db.appeler('sanctions:motifs')[0];
+  const s = db.appeler('sanctions:save', { jeune_id: j, date_faits: '2026-11-02', motif_id: motif.id, intervenant_id: i });
+  assert.strictEqual(db.appeler('sanctions:get', s).responsable_nom, 'Mme Directrice');
+  const d = db.appeler('sanctions:destinataires', s);
+  assert.strictEqual(d.mineur, true);
+  assert.ok(d.destinataires.some((x) => x.role === 'representant' && x.email === 'parent@exemple.fr'));
+  db.appeler('sanctions:piece:ajouter', { sanction_id: s, nom: 'preuve.pdf', contenu: Buffer.from('abc') });
+  const g = db.appeler('sanctions:get', s);
+  assert.strictEqual(g.pieces.length, 1);
+  assert.strictEqual(db.appeler('sanctions:piece:contenu', g.pieces[0].id).nom_fichier, 'preuve.pdf');
+  assert.throws(() => db.appeler('intervenants:delete', i), /désactivez/);
+  assert.throws(() => db.appeler('sanctions:supprimer', s), /pièce/);
+  // majeur : pas de représentant proposé
+  const m = db.appeler('jeunes:save', { nom: 'Adulte', prenom: 'A', classe_id: classes[0].id, date_naissance: '2000-01-01', representant_email: 'x@exemple.fr' });
+  const s2 = db.appeler('sanctions:save', { jeune_id: m, date_faits: '2026-11-02', motif_id: motif.id });
+  assert.strictEqual(db.appeler('sanctions:destinataires', s2).mineur, false);
+});

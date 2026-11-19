@@ -14,6 +14,7 @@ export type Jeune = {
   contrat_depuis?: string; contrat_correction?: boolean;
   sorti?: boolean; sorti_le?: string | null; sortie_motif?: string | null;
   contrat_debut?: string | null; contrat_fin?: string | null; rupture_le?: string | null; contrat_statut?: StatutContrat;
+  date_naissance?: string | null; representant_nom?: string | null; representant_email?: string | null;
   entreprise_telephone?: string | null; entreprise_email?: string | null;
 };
 export type Stats = {
@@ -97,7 +98,7 @@ export type Evenement = {
 };
 
 export type Contact = { id?: number; entreprise_id: number; nom: string; fonction: string | null; telephone: string | null; email: string | null };
-export type Destinataire = { cle: string; libelle: string; email: string; telephone: string | null; role?: 'pp' };
+export type Destinataire = { cle: string; libelle: string; email: string; telephone: string | null; role?: 'pp' | 'representant' };
 export type Professeur = {
   id?: number; nom: string; prenom: string; email: string | null; telephone: string | null; fonction: string | null;
   observations: string | null; actif: number; nb_affectations?: number; classes_actuelles?: string[];
@@ -211,4 +212,37 @@ export type Assiduite = {
   jeune: { id: number; nom: string; prenom: string; classe: string; classe_libelle: string };
   debut: string; fin: string; absences: TotauxAssiduite; retards: TotauxAssiduite; evenements: EvenementAssiduite[];
   rattrapage: { dues: number; validees: number; programmees: number; solde: number }; etablissement: Etablissement;
+};
+
+// ---- Discipline ----
+export type Communication = 'obligatoire' | 'facultative' | 'non';
+export const NOMS_COMMUNICATION: Record<Communication, string> = { obligatoire: 'Obligatoire', facultative: 'Facultative (à votre initiative)', non: 'Non prévue' };
+export type Decision = 'en_attente' | 'sanction' | 'rappel' | 'aucune' | 'commission';
+export const NOMS_DECISION: Record<Decision, string> = {
+  en_attente: 'En attente de décision', sanction: 'Sanction prononcée', rappel: "Rappel à l'ordre", aucune: 'Aucune suite', commission: 'Orienter vers une commission',
+};
+export type Intervenant = { id?: number; nom: string; fonction: string | null; email: string | null; actif: number };
+export type Palier = { id?: number; ordre?: number; libelle: string; communication: Communication; actif: number; nb_motifs?: number; nb_sanctions?: number };
+export type MotifSanction = {
+  id?: number; intitule: string; description: string | null; categorie: string | null; palier_id: number; actif: number;
+  commentaire: string | null; communication: Communication | null; palier_ordre?: number; palier_libelle?: string; nb_utilisations?: number;
+};
+export type Proposition = {
+  palier_id: number; ordre: number; libelle: string; raisons: string[]; mois: number;
+  precedentes: { id: number; date_faits: string; motif: string; ordre: number; palier: string; dans_periode: boolean }[];
+};
+export type Sanction = {
+  id?: number; jeune_id: number; jeune_nom?: string; jeune_prenom?: string; classe_code?: string;
+  date_faits: string; motif_id: number; motif_intitule?: string;
+  palier_propose_id?: number | null; palier_propose_libelle?: string | null; palier_propose_ordre?: number | null;
+  decision: Decision; palier_retenu_id: number | null; palier_retenu_libelle?: string | null; palier_retenu_ordre?: number | null;
+  justification: string | null; description: string | null; observations: string | null; date_decision: string | null; duree: string | null;
+  intervenant_id: number | null; responsable_nom?: string | null; observations_apprenti: string | null; contestation: string | null;
+  statut?: 'ouverte' | 'cloturee'; cloture_le?: string | null; communication?: Communication; communication_manquante?: boolean;
+  nb_pieces?: number; nb_communications?: number;
+};
+export type SanctionDetail = Sanction & {
+  pieces: { id: number; nom_fichier: string; taille: number; ajoute_le: string }[];
+  communications: { id: number; quand: string; destinataires: string; objet: string; contenu: string; methode: string; statut: string }[];
+  journal: { quand: string; action: string; detail: string | null }[];
 };

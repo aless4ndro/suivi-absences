@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const CALENDRIERS = require('./calendriers-2026-2027.cjs');
 const { creerRattrapages } = require('./rattrapages.cjs');
 const { creerProfesseurs, anneeScolaire } = require('./professeurs.cjs');
+const { creerDiscipline } = require('./discipline.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -328,6 +329,101 @@ const MIGRATIONS = [
     ('2027-05-07', '2027-05-07', 'Pont de l''Ascension'),
     ('2027-07-03', '2027-08-31', 'Vacances d''été');
   `,
+  // v16 : discipline — paliers, motifs de sanction, sanctions, journal, communications, pièces ; intervenants ;
+  // date de naissance et représentant légal facultatifs (apprentis mineurs).
+  `
+  ALTER TABLE jeunes ADD COLUMN date_naissance TEXT;
+  ALTER TABLE jeunes ADD COLUMN representant_nom TEXT;
+  ALTER TABLE jeunes ADD COLUMN representant_email TEXT;
+  CREATE TABLE intervenants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nom TEXT NOT NULL,
+    fonction TEXT,
+    email TEXT,
+    actif INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE paliers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ordre INTEGER NOT NULL UNIQUE,
+    libelle TEXT NOT NULL,
+    communication TEXT NOT NULL DEFAULT 'facultative' CHECK (communication IN ('obligatoire', 'facultative', 'non')),
+    actif INTEGER NOT NULL DEFAULT 1
+  );
+  INSERT INTO paliers (ordre, libelle, communication) VALUES
+    (1, 'Avertissement', 'facultative'),
+    (2, 'Blâme', 'facultative'),
+    (3, 'Exclusion temporaire de classe', 'obligatoire'),
+    (4, 'Exclusion temporaire de l''établissement', 'obligatoire'),
+    (5, 'Exclusion définitive', 'obligatoire');
+  CREATE TABLE motifs_sanction (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    intitule TEXT NOT NULL,
+    description TEXT,
+    categorie TEXT,
+    palier_id INTEGER NOT NULL REFERENCES paliers(id),
+    actif INTEGER NOT NULL DEFAULT 1,
+    commentaire TEXT,
+    communication TEXT CHECK (communication IS NULL OR communication IN ('obligatoire', 'facultative', 'non'))
+  );
+  INSERT INTO motifs_sanction (intitule, categorie, palier_id) VALUES
+    ('Retards répétés', 'Assiduité', (SELECT id FROM paliers WHERE ordre = 1)),
+    ('Absences injustifiées', 'Assiduité', (SELECT id FROM paliers WHERE ordre = 1)),
+    ('Non-respect du règlement intérieur', 'Règlement', (SELECT id FROM paliers WHERE ordre = 1)),
+    ('Comportement inapproprié', 'Comportement', (SELECT id FROM paliers WHERE ordre = 2)),
+    ('Manque de respect envers un membre de l''équipe', 'Comportement', (SELECT id FROM paliers WHERE ordre = 2)),
+    ('Dégradation du matériel', 'Biens', (SELECT id FROM paliers WHERE ordre = 2)),
+    ('Perturbation du déroulement des cours', 'Comportement', (SELECT id FROM paliers WHERE ordre = 2)),
+    ('Manquement aux obligations de l''apprenti', 'Obligations', (SELECT id FROM paliers WHERE ordre = 2));
+  CREATE TABLE sanctions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    jeune_id INTEGER NOT NULL REFERENCES jeunes(id) ON DELETE CASCADE,
+    date_faits TEXT NOT NULL,
+    motif_id INTEGER NOT NULL REFERENCES motifs_sanction(id),
+    palier_propose_id INTEGER REFERENCES paliers(id),
+    decision TEXT NOT NULL DEFAULT 'en_attente' CHECK (decision IN ('en_attente', 'sanction', 'rappel', 'aucune', 'commission')),
+    palier_retenu_id INTEGER REFERENCES paliers(id),
+    justification TEXT,
+    description TEXT,
+    observations TEXT,
+    date_decision TEXT,
+    duree TEXT,
+    intervenant_id INTEGER REFERENCES intervenants(id),
+    observations_apprenti TEXT,
+    contestation TEXT,
+    statut TEXT NOT NULL DEFAULT 'ouverte' CHECK (statut IN ('ouverte', 'cloturee')),
+    cloture_le TEXT,
+    cree_le TEXT NOT NULL,
+    modifie_le TEXT
+  );
+  CREATE INDEX sanctions_jeune ON sanctions (jeune_id, date_faits);
+  CREATE TABLE sanction_journal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sanction_id INTEGER NOT NULL REFERENCES sanctions(id) ON DELETE CASCADE,
+    quand TEXT NOT NULL,
+    action TEXT NOT NULL,
+    detail TEXT
+  );
+  CREATE TABLE sanction_communications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sanction_id INTEGER NOT NULL REFERENCES sanctions(id) ON DELETE CASCADE,
+    quand TEXT NOT NULL,
+    destinataires TEXT NOT NULL,
+    objet TEXT NOT NULL,
+    contenu TEXT NOT NULL,
+    methode TEXT NOT NULL,
+    statut TEXT NOT NULL,
+    pieces TEXT
+  );
+  CREATE TABLE sanction_pieces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sanction_id INTEGER NOT NULL REFERENCES sanctions(id) ON DELETE CASCADE,
+    nom_fichier TEXT NOT NULL,
+    taille INTEGER NOT NULL,
+    contenu BLOB NOT NULL,
+    ajoute_le TEXT
+  );
+  CREATE INDEX sanction_pieces_sanction ON sanction_pieces (sanction_id);
+  `,
 ];
 
 // Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
@@ -432,6 +528,14 @@ function ouvrir(chemin) {
     && (a?.maitre_email ?? null) === (b?.maitre_email ?? null);
 
   // Dates du contrat saisies sur la fiche : [début, fin prévue, rupture], contrôlées.
+  // Date de naissance facultative : valide et pas dans le futur.
+  function naissanceValide(v) {
+    const d = vide(v);
+    if (!d) return null;
+    if (!dateValide(d) || d > aujourdhui()) throw new Error('Date de naissance invalide.');
+    return d;
+  }
+
   function datesContrat(j) {
     const [d, f, r] = [vide(j.contrat_debut), vide(j.contrat_fin), vide(j.rupture_le)];
     for (const [v, nom] of [[d, 'de début'], [f, 'de fin'], [r, 'de rupture']]) {
@@ -859,6 +963,7 @@ function ouvrir(chemin) {
         vide(j.maitre_nom), vide(j.maitre_telephone), vide(j.maitre_email),
         ['Monsieur', 'Madame'].includes(j.civilite) ? j.civilite : null,
         vide(j.adresse), vide(j.code_postal), vide(j.ville),
+        naissanceValide(j.date_naissance), vide(j.representant_nom), vide(j.representant_email),
       ];
       if (j.id) {
         // Changement de classe : enregistré dans l'historique à partir de la date indiquée (aujourd'hui par défaut),
@@ -868,7 +973,8 @@ function ouvrir(chemin) {
         try {
           db.prepare(
             `UPDATE jeunes SET nom=?, prenom=?, email=?, telephone=?, classe_id=?, entreprise_id=?,
-             maitre_nom=?, maitre_telephone=?, maitre_email=?, civilite=?, adresse=?, code_postal=?, ville=? WHERE id=?`
+             maitre_nom=?, maitre_telephone=?, maitre_email=?, civilite=?, adresse=?, code_postal=?, ville=?,
+             date_naissance=?, representant_nom=?, representant_email=? WHERE id=?`
           ).run(...p, j.id);
           const nouveau = { entreprise_id: p[5], maitre_nom: p[6], maitre_telephone: p[7], maitre_email: p[8] };
           const ancien = contratDe(j.id, aujourdhui());
@@ -906,7 +1012,8 @@ function ouvrir(chemin) {
       const id = Number(
         db.prepare(
           `INSERT INTO jeunes (nom, prenom, email, telephone, classe_id, entreprise_id,
-           maitre_nom, maitre_telephone, maitre_email, civilite, adresse, code_postal, ville) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+           maitre_nom, maitre_telephone, maitre_email, civilite, adresse, code_postal, ville,
+           date_naissance, representant_nom, representant_email) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         ).run(...p).lastInsertRowid
       );
       db.prepare('INSERT INTO jeune_classes (jeune_id, classe_id, date_debut) VALUES (?,?,?)').run(id, Number(j.classe_id), ORIGINE);
@@ -1114,6 +1221,7 @@ function ouvrir(chemin) {
   Object.assign(actions, creerRattrapages(db, { vide, dateValide, heureValide, enMinutes, cle, classeA, tailleMax: TAILLE_MAX_PIECE }));
   const professeurs = creerProfesseurs(db, { vide, dateValide, cle });
   Object.assign(actions, professeurs.actions);
+  Object.assign(actions, creerDiscipline(db, { vide, dateValide, cle, classeDe, destinatairesDe, aujourdhui, tailleMax: TAILLE_MAX_PIECE }));
 
   return {
     appeler(action, arg) {

@@ -149,6 +149,12 @@ function brancherIpc() {
         fs.writeFileSync(chemin, contenu);
         fichiers.push(chemin);
       }
+      for (const id of arg.piece_sanction_ids ?? []) {
+        const { nom_fichier, contenu } = db.appeler('sanctions:piece:contenu', id);
+        const chemin = path.join(dossier, `Piece-${id}-${nomSur(nom_fichier)}`);
+        fs.writeFileSync(chemin, contenu);
+        fichiers.push(chemin);
+      }
       for (const id of arg.piece_evenement_ids ?? []) {
         const { nom_fichier, contenu } = db.appeler('pieces:contenu', id);
         const chemin = path.join(dossier, `Justificatif-${id}-${nomSur(nom_fichier)}`);
@@ -208,7 +214,8 @@ function brancherIpc() {
         selections.delete(token);
         try {
           const contenu = fs.readFileSync(chemin);
-          if (arg.seance_id) db.appeler('rattrapages:piece:ajouter', { seance_id: arg.seance_id, nom: path.basename(chemin), contenu });
+          if (arg.sanction_id) db.appeler('sanctions:piece:ajouter', { sanction_id: arg.sanction_id, nom: path.basename(chemin), contenu });
+          else if (arg.seance_id) db.appeler('rattrapages:piece:ajouter', { seance_id: arg.seance_id, nom: path.basename(chemin), contenu });
           else db.appeler('pieces:ajouter', { evenement_id: arg.evenement_id, nom: path.basename(chemin), contenu });
           ajoutees++;
         } catch (e) {
@@ -219,11 +226,11 @@ function brancherIpc() {
     }
 
     if (action === 'ouvrirPiece') {
-      const { nom_fichier, contenu } = db.appeler(arg.rattrapage ? 'rattrapages:piece:contenu' : 'pieces:contenu', arg.id);
+      const { nom_fichier, contenu } = db.appeler(arg.sanction ? 'sanctions:piece:contenu' : arg.rattrapage ? 'rattrapages:piece:contenu' : 'pieces:contenu', arg.id);
       const dossier = dossierTemp();
       fs.mkdirSync(dossier, { recursive: true });
       const sur = nomSur(nom_fichier);
-      const fichier = path.join(dossier, `${arg.rattrapage ? 'r' : ''}${arg.id}-${sur}`);
+      const fichier = path.join(dossier, `${arg.sanction ? 's' : arg.rattrapage ? 'r' : ''}${arg.id}-${sur}`);
       fs.writeFileSync(fichier, contenu);
       const erreur = await shell.openPath(fichier);
       if (erreur) throw new Error(`Impossible d'ouvrir le fichier : ${erreur}`);

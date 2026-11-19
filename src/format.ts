@@ -51,3 +51,9 @@ export function feries(annee: number): Map<string, string> {
 }
 
 export const NOMS_MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+
+// « 2026-11-19 20:11:05 » → « 19/11/2026 à 20:11 »
+export function formaterDateHeure(t: string): string {
+  const [d, h = ''] = t.split(' ');
+  return `${d.split('-').reverse().join('/')}${h ? ` à ${h.slice(0, 5)}` : ''}`;
+}

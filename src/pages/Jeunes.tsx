@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { appeler, MOTIFS_SORTIE, STATUTS_CONTRAT, type Classe, type Contact, type Entreprise, type Jeune, type LigneClasse, type LigneContrat } from '../api';
+import { appeler, MOTIFS_SORTIE, NOMS_DECISION, STATUTS_CONTRAT, type Classe, type Sanction, type Contact, type Entreprise, type Jeune, type LigneClasse, type LigneContrat } from '../api';
 import Bascule from './Bascule';
 import FicheAssiduite from '../FicheAssiduite';
 import PhotoApprenti from '../PhotoApprenti';
+import SanctionForm from '../SanctionForm';
 import { correspond } from '../recherche';
 import { aujourdhui, formaterDate } from '../format';
 
@@ -29,6 +30,9 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
   const [contratInitial, setContratInitial] = useState<{ e: number | null; n: string; t: string; m: string } | null>(null);
   const [sortie, setSortie] = useState<{ date: string; motif: string } | null>(null);
   const [info, setInfo] = useState('');
+  const [sanctions, setSanctions] = useState<Sanction[]>([]);
+  const [sanctionOuverte, setSanctionOuverte] = useState<{ id: number | null } | null>(null);
+  const chargerSanctions = (id?: number) => id ? appeler<Sanction[]>('sanctions:list', { jeune_id: id }).then(setSanctions) : setSanctions([]);
   const entrepriseId = fiche?.entreprise_id ?? null;
   const entrepriseChoisie = entreprises.find((e) => e.id === entrepriseId);
   useEffect(() => {
@@ -59,6 +63,7 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
     setContratInitial({ e: j.entreprise_id, n: normaliser(j.maitre_nom), t: normaliser(j.maitre_telephone), m: normaliser(j.maitre_email) });
     appeler<LigneClasse[]>('jeunes:classes', j.id).then(setHistorique);
     appeler<LigneContrat[]>('jeunes:contrats', j.id).then(setContrats);
+    chargerSanctions(j.id);
   }
 
   async function recharger(id: number) {
@@ -105,7 +110,7 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
   }, [cible, liste]);
 
   function nouveau() {
-    setErreur(''); setInfo(''); setHistorique([]); setClasseInitiale(null); setContrats([]); setContratInitial(null); setSortie(null);
+    setErreur(''); setInfo(''); setHistorique([]); setClasseInitiale(null); setContrats([]); setContratInitial(null); setSortie(null); setSanctions([]);
     setFiche({
       nom: '', prenom: '', email: '', telephone: '',
       classe_id: filtre === 'toutes' ? classes[0]?.id ?? 0 : filtre,
@@ -195,6 +200,9 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
             <label>Adresse<input {...champ('adresse')} placeholder="N° et rue" /></label>
             <label>Code postal<input {...champ('code_postal')} /></label>
             <label>Ville<input {...champ('ville')} /></label>
+            <label>Date de naissance (facultative)<input type="date" {...champ('date_naissance')} /></label>
+            <label>Représentant légal (si mineur)<input {...champ('representant_nom')} placeholder="Nom et prénom" /></label>
+            <label>E-mail du représentant légal<input type="email" {...champ('representant_email')} /></label>
             <label>Classe *
               <select value={fiche.classe_id} onChange={(e) => setFiche({ ...fiche, classe_id: Number(e.target.value) })}>
                 {classes.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
@@ -332,6 +340,28 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
               <p className="discret">L'apprenti disparaît des listes à partir de cette date ; absences, retards et rattrapages sont conservés.</p>
             </>
           )}
+          {fiche.id && (
+            <section className="bloc-assiduite">
+              <h3>Historique disciplinaire</h3>
+              {sanctions.length === 0 ? <p className="discret">Aucun dossier disciplinaire.</p> : (
+                <table>
+                  <thead><tr><th>Faits du</th><th>Motif</th><th>Proposé</th><th>Décision</th><th></th></tr></thead>
+                  <tbody>
+                    {sanctions.map((x) => (
+                      <tr key={x.id}>
+                        <td>{formaterDate(x.date_faits)}</td>
+                        <td>{x.motif_intitule}</td>
+                        <td>{x.palier_propose_ordre ? `${x.palier_propose_ordre} — ${x.palier_propose_libelle}` : '—'}</td>
+                        <td>{x.decision === 'sanction' ? <strong>{x.palier_retenu_libelle}</strong> : NOMS_DECISION[x.decision]}{x.statut === 'cloturee' && <span className="etiquette">clôturé</span>}{x.communication_manquante && <span className="etiquette st-rouge">employeur à informer</span>}</td>
+                        <td className="droite"><button type="button" onClick={() => setSanctionOuverte({ id: x.id! })}>Ouvrir</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <div className="actions"><button type="button" onClick={() => setSanctionOuverte({ id: null })}>Ajouter une sanction</button></div>
+            </section>
+          )}
           {fiche.id && <FicheAssiduite key={fiche.id} jeuneId={fiche.id} allerA={allerA} />}
           {erreur && <p className="erreur">{erreur}</p>}
           <div className="actions">
@@ -339,6 +369,10 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
             <button type="button" onClick={() => setFiche(null)}>Annuler</button>
           </div>
         </form>
+      )}
+
+      {sanctionOuverte && fiche?.id && (
+        <SanctionForm jeuneId={fiche.id} sanctionId={sanctionOuverte.id} apprentis={liste} onClose={() => setSanctionOuverte(null)} onChange={() => chargerSanctions(fiche.id)} />
       )}
 
       {visibles.length === 0 ? (
