@@ -7,6 +7,7 @@ import {
 import ChoixDestinataires, { adressesInvalides, repartition, ppInclus, type Envoi } from './ChoixDestinataires';
 import { aujourdhui, formaterDate, formaterDateHeure, formaterTaille } from './format';
 import { corpsSanction, sujetSanction } from './discipline';
+import CommissionForm from './CommissionForm';
 
 const VIDE = (jeuneId: number): Sanction => ({
   jeune_id: jeuneId, date_faits: aujourdhui(), motif_id: 0, decision: 'en_attente', palier_retenu_id: null,
@@ -30,6 +31,8 @@ export default function SanctionForm({ jeuneId, sanctionId, apprentis, onClose, 
   const [info, setInfo] = useState('');
   const [notif, setNotif] = useState<Notif | null>(null);
   const [id, setId] = useState<number | null>(sanctionId ?? null);
+  const [commission, setCommission] = useState(false);
+  const [liees, setLiees] = useState<{ id: number; date: string | null; statut: string }[]>([]);
 
   const cloture = detail?.statut === 'cloturee';
   const apprenti = apprentis.find((a) => a.id === s.jeune_id);
@@ -44,6 +47,9 @@ export default function SanctionForm({ jeuneId, sanctionId, apprentis, onClose, 
     appeler<Palier[]>('paliers:list').then(setPaliers);
     appeler<Intervenant[]>('intervenants:list').then(setIntervenants);
   }, []);
+  useEffect(() => {
+    if (id) appeler<any[]>('commissions:list', {}).then((l) => setLiees(l.filter((c) => c.sanction_id === id))).catch(() => {});
+  }, [id, commission]);
   useEffect(() => { if (id) recharger(id).catch((e) => setErreur((e as Error).message)); }, [id]);
 
   // Proposition recalculée dès que l'apprenti, le motif ou la date des faits changent.
@@ -277,6 +283,15 @@ export default function SanctionForm({ jeuneId, sanctionId, apprentis, onClose, 
           </>
         )}
 
+        {detail && detail.decision === 'commission' && (
+          <div className="actions">
+            <button type="button" onClick={() => setCommission(true)}>{liees.length ? 'Voir / programmer une autre commission' : 'Programmer la commission…'}</button>
+            {liees.length > 0 && <span className="discret">{liees.length} commission(s) liée(s)</span>}
+          </div>
+        )}
+        {commission && detail && (
+          <CommissionForm jeuneId={detail.jeune_id} type="disciplinaire" motif={detail.motif_intitule} sanctionId={detail.id} apprentis={apprentis} onClose={() => setCommission(false)} onChange={onChange} />
+        )}
         {notif && (
           <div className="voile">
             <div className="fenetre">

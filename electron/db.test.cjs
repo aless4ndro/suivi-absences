@@ -759,3 +759,46 @@ test('discipline : intervenants, pièces, représentant légal des mineurs', () 
   const s2 = db.appeler('sanctions:save', { jeune_id: m, date_faits: '2026-11-02', motif_id: motif.id });
   assert.strictEqual(db.appeler('sanctions:destinataires', s2).mineur, false);
 });
+
+test('commissions : programmation, statuts, report, convocation Word archivée, rappels', () => {
+  const db = ouvrir(':memory:');
+  const classe = db.appeler('classes:list')[0];
+  const jid = db.appeler('jeunes:save', { nom: 'Durand', prenom: 'Léa', classe_id: classe.id, civilite: 'Madame', adresse: '2 rue des Lilas', code_postal: '27000', ville: 'ÉVREUX' });
+  const iv = db.appeler('intervenants:save', { nom: 'Mme Martin', fonction: 'CPE', email: 'cpe@ecole.fr' });
+
+  assert.throws(() => db.appeler('commissions:save', { jeune_id: jid, type: 'disciplinaire', motif: '' }), /motif/);
+  const sans = db.appeler('commissions:save', { jeune_id: jid, type: 'pedagogique', motif: 'Résultats insuffisants' });
+  assert.strictEqual(db.appeler('commissions:get', sans).statut, 'a_programmer');
+  assert.throws(() => db.appeler('commissions:statut', { id: sans, statut: 'programmee' }), /date/);
+  assert.strictEqual(db.appeler('commissions:rappels').a_programmer.length, 1);
+
+  const id = db.appeler('commissions:save', { jeune_id: jid, type: 'disciplinaire', motif: 'Falsification de document', date: '2999-01-07', heure_debut: '16:00', participants: [iv] });
+  let c = db.appeler('commissions:get', id);
+  assert.strictEqual(c.statut, 'programmee');
+  assert.strictEqual(c.participants[0].email, 'cpe@ecole.fr');
+  assert.throws(() => db.appeler('commissions:save', { id, jeune_id: jid, type: 'disciplinaire', motif: 'x', date: '2999-01-07', heure_debut: '16:00', heure_fin: '15:00' }), /fin/);
+
+  const g = db.appeler('commissions:convocation:generer', id);
+  assert.match(g.nom_fichier, /^Convocation_commission_disciplinaire_Durand_Lea_2999-01-07\.docx$/);
+  const { contenu } = db.appeler('commissions:piece:contenu', g.piece_id);
+  assert.strictEqual(contenu.subarray(0, 2).toString(), 'PK');
+  assert.match(require('./zip.cjs').lireZip(contenu).get('word/document.xml').toString('utf8'), /en classe de BTS [A-Z]+ \d ALTERNANCE/);
+  assert.strictEqual(db.appeler('commissions:get', id).classe_code, classe.code);
+
+  db.appeler('commissions:communication:archiver', { commission_id: id, nature: 'convocation', a: ['x@y.fr'], objet: 'Convocation', corps: '...', methode: 'outlook' });
+  c = db.appeler('commissions:get', id);
+  assert.strictEqual(c.statut, 'convocations_envoyees');
+  assert.throws(() => db.appeler('commissions:supprimer', id), /historique/);
+
+  db.appeler('commissions:reporter', { id, date: '2999-01-14', heure_debut: '10:00', raison: 'Absence du jeune' });
+  c = db.appeler('commissions:get', id);
+  assert.strictEqual(c.statut, 'programmee');
+  assert.ok(c.journal.some((j) => j.action === 'Report' && /07\/01\/2999/.test(j.detail)));
+
+  db.appeler('commissions:save', { id, jeune_id: jid, type: 'disciplinaire', motif: 'Falsification de document', date: '2999-01-14', heure_debut: '10:00', compte_rendu: 'Échange tenu', decision: 'Avertissement' });
+  db.appeler('commissions:statut', { id, statut: 'realisee' });
+  assert.strictEqual(db.appeler('commissions:get', id).statut, 'realisee');
+  assert.strictEqual(db.appeler('commissions:supprimer', sans), true);
+  assert.throws(() => db.appeler('commissions:reglages:save', { rappel_jours: 99 }));
+  db.fermer();
+});

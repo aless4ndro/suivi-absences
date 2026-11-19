@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { appeler, type AlertesPP, type Cible, type FiltresEvenements, type Stats } from '../api';
+import { appeler, type RappelsCommissions, type AlertesPP, type Cible, type FiltresEvenements, type Stats } from '../api';
 import RechercheGenerale from '../RechercheGenerale';
 
 type Alertes = { a_traiter: number; a_notifier: number };
@@ -8,9 +8,11 @@ export default function Accueil({ allerA, ouvrirFiche }: { allerA: (page: string
   const [stats, setStats] = useState<Stats | null>(null);
   const [alertes, setAlertes] = useState<Alertes | null>(null);
   const [pp, setPp] = useState<AlertesPP | null>(null);
+  const [com, setCom] = useState<RappelsCommissions | null>(null);
   useEffect(() => {
     appeler<AlertesPP>('pp:alertes').then(setPp);
     appeler<Stats>('stats').then(setStats);
+    appeler<RappelsCommissions>('commissions:rappels').then(setCom);
     appeler<Alertes>('evenements:alertes').then(setAlertes);
   }, []);
 
@@ -39,6 +41,18 @@ export default function Accueil({ allerA, ouvrirFiche }: { allerA: (page: string
             </button>
           )}
         </div>
+      )}
+
+      {com && (com.a_programmer.length > 0 || com.a_convoquer.length > 0 || com.a_venir.length > 0 || com.a_realiser.length > 0) && (
+        <>
+          <h2>Commissions</h2>
+          <div className="cartes">
+            {com.a_programmer.length > 0 && <button className="carte alerte" onClick={() => allerA('commissions')}><span className="chiffre">{com.a_programmer.length}</span><strong>À programmer</strong><span className="discret">commission(s) sans date</span></button>}
+            {com.a_convoquer.length > 0 && <button className="carte alerte" onClick={() => allerA('commissions')}><span className="chiffre">{com.a_convoquer.length}</span><strong>Convocations à envoyer</strong><span className="discret">dans les {com.jours} jours</span></button>}
+            {com.a_venir.length > 0 && <button className="carte" onClick={() => allerA('commissions')}><span className="chiffre">{com.a_venir.length}</span><strong>À venir</strong><span className="discret">dans les {com.jours} jours</span></button>}
+            {com.a_realiser.length > 0 && <button className="carte alerte" onClick={() => allerA('commissions')}><span className="chiffre">{com.a_realiser.length}</span><strong>Date passée</strong><span className="discret">à marquer réalisée ou reporter</span></button>}
+          </div>
+        </>
       )}
 
       <h2>Effectifs</h2>

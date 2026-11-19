@@ -246,3 +246,27 @@ export type SanctionDetail = Sanction & {
   communications: { id: number; quand: string; destinataires: string; objet: string; contenu: string; methode: string; statut: string }[];
   journal: { quand: string; action: string; detail: string | null }[];
 };
+
+// ---- Commissions ----
+export type TypeCommission = 'pedagogique' | 'disciplinaire';
+export type StatutCommission = 'a_programmer' | 'programmee' | 'convocations_envoyees' | 'realisee' | 'reportee' | 'annulee';
+export const NOMS_STATUT_COMMISSION: Record<StatutCommission, string> = {
+  a_programmer: 'À programmer', programmee: 'Programmée', convocations_envoyees: 'Convocations envoyées', realisee: 'Réalisée', reportee: 'Reportée', annulee: 'Annulée',
+};
+export const NOMS_TYPE_COMMISSION: Record<TypeCommission, string> = { pedagogique: 'Pédagogique', disciplinaire: 'Disciplinaire' };
+export type Commission = {
+  id?: number; jeune_id: number; type: TypeCommission; date: string | null; heure_debut: string | null; heure_fin: string | null; lieu: string | null;
+  motif: string; commentaire: string | null; statut?: StatutCommission; compte_rendu: string | null; decision: string | null; suites: string | null;
+  sanction_id?: number | null; jeune_nom?: string; jeune_prenom?: string; nb_participants?: number; nb_convocations?: number; nb_pieces?: number;
+};
+export type CommissionDetail = Commission & {
+  classe_code: string | null;
+  participants: { id: number; intervenant_id: number | null; nom: string; fonction: string | null; email: string | null }[];
+  pieces: { id: number; nom_fichier: string; taille: number; genere: number; ajoute_le: string }[];
+  communications: { id: number; quand: string; nature: string; destinataires: string; objet: string; statut: string }[];
+  journal: { id: number; quand: string; action: string; detail: string | null }[];
+};
+export type RappelsCommissions = {
+  a_programmer: LigneRappel[]; a_convoquer: LigneRappel[]; a_venir: LigneRappel[]; a_realiser: LigneRappel[]; jours: number;
+};
+export type LigneRappel = { id: number; jeune: string; type: TypeCommission; date: string | null; heure_debut: string | null; motif: string };

@@ -6,6 +6,7 @@ const CALENDRIERS = require('./calendriers-2026-2027.cjs');
 const { creerRattrapages } = require('./rattrapages.cjs');
 const { creerProfesseurs, anneeScolaire } = require('./professeurs.cjs');
 const { creerDiscipline } = require('./discipline.cjs');
+const { creerCommissions } = require('./commissions.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -423,6 +424,66 @@ const MIGRATIONS = [
     ajoute_le TEXT
   );
   CREATE INDEX sanction_pieces_sanction ON sanction_pieces (sanction_id);
+  `,
+  // v17 : commissions pédagogiques et disciplinaires — programmation, participants, statuts, convocations Word archivées, comptes rendus.
+  `
+  CREATE TABLE commissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    jeune_id INTEGER NOT NULL REFERENCES jeunes(id),
+    type TEXT NOT NULL CHECK (type IN ('pedagogique', 'disciplinaire')),
+    date TEXT,
+    heure_debut TEXT,
+    heure_fin TEXT,
+    lieu TEXT,
+    motif TEXT NOT NULL,
+    commentaire TEXT,
+    statut TEXT NOT NULL DEFAULT 'a_programmer' CHECK (statut IN ('a_programmer', 'programmee', 'convocations_envoyees', 'realisee', 'reportee', 'annulee')),
+    compte_rendu TEXT,
+    decision TEXT,
+    suites TEXT,
+    sanction_id INTEGER REFERENCES sanctions(id),
+    cree_le TEXT NOT NULL,
+    modifie_le TEXT
+  );
+  CREATE INDEX commissions_date ON commissions (date);
+  CREATE INDEX commissions_jeune ON commissions (jeune_id);
+  CREATE TABLE commission_participants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    commission_id INTEGER NOT NULL REFERENCES commissions(id) ON DELETE CASCADE,
+    intervenant_id INTEGER REFERENCES intervenants(id),
+    nom TEXT NOT NULL,
+    fonction TEXT,
+    email TEXT
+  );
+  CREATE TABLE commission_journal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    commission_id INTEGER NOT NULL REFERENCES commissions(id) ON DELETE CASCADE,
+    quand TEXT NOT NULL,
+    action TEXT NOT NULL,
+    detail TEXT
+  );
+  CREATE TABLE commission_communications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    commission_id INTEGER NOT NULL REFERENCES commissions(id) ON DELETE CASCADE,
+    quand TEXT NOT NULL,
+    nature TEXT NOT NULL,
+    destinataires TEXT NOT NULL,
+    objet TEXT NOT NULL,
+    contenu TEXT NOT NULL,
+    methode TEXT NOT NULL,
+    statut TEXT NOT NULL,
+    pieces TEXT
+  );
+  CREATE TABLE commission_pieces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    commission_id INTEGER NOT NULL REFERENCES commissions(id) ON DELETE CASCADE,
+    nom_fichier TEXT NOT NULL,
+    taille INTEGER NOT NULL,
+    contenu BLOB NOT NULL,
+    genere INTEGER NOT NULL DEFAULT 0,
+    ajoute_le TEXT
+  );
+  CREATE INDEX commission_pieces_commission ON commission_pieces (commission_id);
   `,
 ];
 
@@ -1222,6 +1283,7 @@ function ouvrir(chemin) {
   const professeurs = creerProfesseurs(db, { vide, dateValide, cle });
   Object.assign(actions, professeurs.actions);
   Object.assign(actions, creerDiscipline(db, { vide, dateValide, cle, classeDe, destinatairesDe, aujourdhui, tailleMax: TAILLE_MAX_PIECE }));
+  Object.assign(actions, creerCommissions(db, { tailleMax: TAILLE_MAX_PIECE, vide, dateValide, classeDe, destinatairesDe, aujourdhui, etablissement: () => actions['etablissement:get']() }));
 
   return {
     appeler(action, arg) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { appeler, type Classe, type Evenement, type JourCalendrier, type Vacances } from '../api';
+import { appeler, NOMS_TYPE_COMMISSION, type Commission, type Classe, type Evenement, type JourCalendrier, type Vacances } from '../api';
 import { aujourdhui, feries, formaterDate, NOMS_MOIS } from '../format';
 
 const MOIS_ANNEE: [number, number][] = [
@@ -17,6 +17,7 @@ export default function Calendrier() {
   const [libelle, setLibelle] = useState('');
   const [erreur, setErreur] = useState('');
   const [vacances, setVacances] = useState<Vacances[]>([]);
+  const [commissions, setCommissions] = useState<Commission[]>([]);
   const vacancesDe = (iso: string) => vacances.find((v) => v.debut <= iso && iso <= v.fin);
 
   const jf = useMemo(() => new Map([...feries(2026), ...feries(2027)]), []);
@@ -31,6 +32,10 @@ export default function Calendrier() {
 
   const charger = (id: number) => {
     appeler<JourCalendrier[]>('calendrier:annee', id).then((l) => setJours(new Map(l.map((j) => [j.date, j]))));
+    appeler<(Commission & { classe_code: string | null })[]>('commissions:list', {}).then((l) => {
+      const code = classes.find((c) => c.id === id)?.code;
+      setCommissions(l.filter((c) => c.date && c.statut !== 'annulee' && c.classe_code === code));
+    });
     appeler<Evenement[]>('evenements:list', { classe_id: id }).then((l) =>
       setAbsences(new Set(l.flatMap((e) => (e.creneaux.length ? e.creneaux.map((c) => c.date) : [e.date_debut]))))
     );
@@ -79,6 +84,7 @@ export default function Calendrier() {
         <span><i className="pastille vacances" /> Vacances scolaires (zone B)</span>
         <span><i className="pastille ferie" /> Jour férié</span>
         <span><i className="pastille absence" /> Absence ou retard saisi</span>
+        <span><i className="pastille commission" /> Commission</span>
       </div>
 
       {jours.size === 0 && (
@@ -104,7 +110,7 @@ export default function Calendrier() {
                   const titre = [j ? TYPES[j.type] : '', j?.libelle, ferie, vac?.libelle].filter(Boolean).join(' · ');
                   return (
                     <button key={iso} type="button" title={titre || undefined}
-                      className={['jour', j?.type ?? '', vac ? 'vacances' : '', ferie ? 'ferie' : '', absences.has(iso) ? 'absence' : '', iso === choisi ? 'choisi' : '', iso === aujourd ? 'aujourdhui' : ''].join(' ')}
+                      className={['jour', j?.type ?? '', vac ? 'vacances' : '', ferie ? 'ferie' : '', absences.has(iso) ? 'absence' : '', commissions.some((c) => c.date === iso) ? 'commission' : '', iso === choisi ? 'choisi' : '', iso === aujourd ? 'aujourdhui' : ''].join(' ')}
                       onClick={() => selectionner(iso)}>
                       {i + 1}
                     </button>
@@ -125,6 +131,9 @@ export default function Calendrier() {
             {vacancesDe(choisi) && <> · {vacancesDe(choisi)!.libelle} (zone B)</>}
             {absences.has(choisi) && <> · absence ou retard saisi ce jour-là</>}
           </p>
+          {commissions.filter((c) => c.date === choisi).map((c) => (
+            <p key={c.id}>Commission {NOMS_TYPE_COMMISSION[c.type].toLowerCase()} à {(c.heure_debut ?? '').replace(':', 'h')} — {c.jeune_prenom} {c.jeune_nom?.toUpperCase()}</p>
+          ))}
           <label>Libellé (facultatif)
             <input value={libelle} placeholder="ex. Examen, journée d'intégration" onChange={(e) => setLibelle(e.target.value)} />
           </label>

@@ -10,6 +10,7 @@ import Absences from './pages/Absences';
 import Calendrier from './pages/Calendrier';
 import Rattrapages from './pages/Rattrapages';
 import Sanctions from './pages/Sanctions';
+import Commissions from './pages/Commissions';
 import Recapitulatifs from './pages/Recapitulatifs';
 import Professeurs from './pages/Professeurs';
 
@@ -20,6 +21,7 @@ const PAGES = [
   { id: 'entreprises', titre: 'Entreprises' },
   { id: 'professeurs', titre: 'Professeurs principaux' },
   { id: 'sanctions', titre: 'Sanctions' },
+  { id: 'commissions', titre: 'Commissions' },
   { id: 'motifs', titre: 'Motifs' },
   { id: 'rattrapages', titre: 'Rattrapages' },
   { id: 'calendrier', titre: 'Calendrier' },
@@ -77,6 +79,7 @@ export default function App() {
         {page === 'calendrier' && <Calendrier />}
         {page === 'rattrapages' && <Rattrapages />}
         {page === 'sanctions' && <Sanctions ouvrirFiche={ouvrirFiche} />}
+        {page === 'commissions' && <Commissions />}
         {page === 'envois' && <Recapitulatifs />}
         {page === 'parametres' && <Parametres apresRestauration={rafraichir} />}
         {'aVenir' in courante && (

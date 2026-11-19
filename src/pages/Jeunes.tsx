@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { appeler, MOTIFS_SORTIE, NOMS_DECISION, STATUTS_CONTRAT, type Classe, type Sanction, type Contact, type Entreprise, type Jeune, type LigneClasse, type LigneContrat } from '../api';
+import { appeler, MOTIFS_SORTIE, NOMS_DECISION, NOMS_STATUT_COMMISSION, NOMS_TYPE_COMMISSION, type Commission, STATUTS_CONTRAT, type Classe, type Sanction, type Contact, type Entreprise, type Jeune, type LigneClasse, type LigneContrat } from '../api';
 import Bascule from './Bascule';
 import FicheAssiduite from '../FicheAssiduite';
 import PhotoApprenti from '../PhotoApprenti';
 import SanctionForm from '../SanctionForm';
+import CommissionForm from '../CommissionForm';
 import { correspond } from '../recherche';
 import { aujourdhui, formaterDate } from '../format';
 
@@ -32,6 +33,9 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
   const [info, setInfo] = useState('');
   const [sanctions, setSanctions] = useState<Sanction[]>([]);
   const [sanctionOuverte, setSanctionOuverte] = useState<{ id: number | null } | null>(null);
+  const [commissions, setCommissions] = useState<Commission[]>([]);
+  const [commissionOuverte, setCommissionOuverte] = useState<{ id: number | null } | null>(null);
+  const chargerCommissions = (id?: number) => id ? appeler<Commission[]>('commissions:list', { jeune_id: id }).then(setCommissions) : setCommissions([]);
   const chargerSanctions = (id?: number) => id ? appeler<Sanction[]>('sanctions:list', { jeune_id: id }).then(setSanctions) : setSanctions([]);
   const entrepriseId = fiche?.entreprise_id ?? null;
   const entrepriseChoisie = entreprises.find((e) => e.id === entrepriseId);
@@ -64,6 +68,7 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
     appeler<LigneClasse[]>('jeunes:classes', j.id).then(setHistorique);
     appeler<LigneContrat[]>('jeunes:contrats', j.id).then(setContrats);
     chargerSanctions(j.id);
+    chargerCommissions(j.id);
   }
 
   async function recharger(id: number) {
@@ -362,6 +367,27 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
               <div className="actions"><button type="button" onClick={() => setSanctionOuverte({ id: null })}>Ajouter une sanction</button></div>
             </section>
           )}
+          {fiche.id && (
+            <section className="bloc-assiduite">
+              <h3>Commissions</h3>
+              {commissions.length === 0 ? <p className="discret">Aucune commission.</p> : (
+                <table>
+                  <tbody>
+                    {commissions.map((c) => (
+                      <tr key={c.id}>
+                        <td>{c.date ? formaterDate(c.date) : 'à fixer'}</td>
+                        <td>{NOMS_TYPE_COMMISSION[c.type]}</td>
+                        <td>{c.motif}</td>
+                        <td>{NOMS_STATUT_COMMISSION[c.statut!]}</td>
+                        <td className="droite"><button type="button" onClick={() => setCommissionOuverte({ id: c.id! })}>Ouvrir</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <div className="actions"><button type="button" onClick={() => setCommissionOuverte({ id: null })}>Programmer une commission</button></div>
+            </section>
+          )}
           {fiche.id && <FicheAssiduite key={fiche.id} jeuneId={fiche.id} allerA={allerA} />}
           {erreur && <p className="erreur">{erreur}</p>}
           <div className="actions">
@@ -369,6 +395,10 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
             <button type="button" onClick={() => setFiche(null)}>Annuler</button>
           </div>
         </form>
+      )}
+
+      {commissionOuverte && fiche?.id && (
+        <CommissionForm jeuneId={fiche.id} commissionId={commissionOuverte.id} apprentis={liste} onClose={() => setCommissionOuverte(null)} onChange={() => chargerCommissions(fiche.id)} />
       )}
 
       {sanctionOuverte && fiche?.id && (
