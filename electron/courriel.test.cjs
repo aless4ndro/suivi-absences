@@ -119,3 +119,11 @@ test('composer : destinataires choisis en À / Cc / Cci, adresses saisies vérif
   const script = construireScript('C:\\m.json');
   assert.ok(script.includes('$m.CC = $d.cc') && script.includes('$m.BCC = $d.cci'));
 });
+
+test('conversion Word → PDF : script Word et refus hors Windows', async () => {
+  const { scriptWordVersPdf, convertirWordEnPdf } = require('./courriel.cjs');
+  const sc = scriptWordVersPdf("C:\\a b\\l'ea.docx", 'C:\\a b\\l\'ea.pdf');
+  assert.match(sc, /Word\.Application/);
+  assert.match(sc, /l''ea\.docx/);
+  await assert.rejects(convertirWordEnPdf('/x.docx', '/x.pdf', { plateforme: 'linux', executer: async () => {} }), /Windows/);
+});

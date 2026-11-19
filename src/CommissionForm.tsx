@@ -61,13 +61,27 @@ export default function CommissionForm({ commissionId, jeuneId, type, motif, san
     const nid = await enregistrer();
     if (!nid) return;
     try {
+      const existante = detail?.pieces.find((p) => p.genere && /\.docx$/i.test(p.nom_fichier));
+      if (existante && confirm('Une convocation Word existe déjà.\n\nOK : ouvrir la version existante (avec vos modifications).\nAnnuler : générer une nouvelle convocation à partir des données actuelles.')) {
+        await fichiers('ouvrirPiece', { id: existante.id, commission: true });
+        return;
+      }
       const g = await appeler<{ piece_id: number; nom_fichier: string; manque_adresse: boolean; manque_civilite: boolean }>('commissions:convocation:generer', nid);
       await recharger(nid);
-      setInfo(`Convocation Word générée et archivée (${g.nom_fichier}).${g.manque_adresse ? ' ⚠ Adresse de l\'apprenti manquante : complétez sa fiche puis régénérez.' : ''}${g.manque_civilite ? ' ⚠ Civilité manquante.' : ''}`);
+      setInfo(`Convocation Word générée et ouverte pour relecture (${g.nom_fichier}) : modifiez-la dans Word, enregistrez, puis « Convertir en PDF ». Rien n'est joint automatiquement à l'apprenti.${g.manque_adresse ? ' ⚠ Adresse de l\'apprenti manquante : complétez sa fiche puis régénérez.' : ''}${g.manque_civilite ? ' ⚠ Civilité manquante.' : ''}`);
       await fichiers('ouvrirPiece', { id: g.piece_id, commission: true });
     } catch (e) { setErreur((e as Error).message); }
   }
 
+  async function convertirPdf(pieceId: number) {
+    if (!id) return;
+    setErreur(''); setInfo('Conversion en cours…');
+    try {
+      const r = await fichiers<{ modifie: boolean }>('commissionPdf', { id: pieceId, commission_id: id });
+      await recharger(id);
+      setInfo(`PDF créé et archivé${r.modifie ? ' à partir de votre version modifiée du Word' : ''}. Il sera proposé en pièce jointe du mail.`);
+    } catch (e) { setInfo(''); setErreur((e as Error).message); }
+  }
   async function preparerMail(nature: Mail['nature']) {
     const nid = await enregistrer();
     if (!nid) return;
@@ -99,9 +113,9 @@ export default function CommissionForm({ commissionId, jeuneId, type, motif, san
         }
         if (disc && !d.destinataires.some((x) => x.cle === 'maitre')) avert.push("Pas d'adresse pour le maître d'apprentissage : il est convié à une commission disciplinaire.");
         if (d.mineur && d.representant_manquant) avert.push("L'apprenti est mineur mais aucun représentant légal n'a d'adresse e-mail.");
-        if (!cd.pieces.some((p) => p.genere)) avert.push("La convocation Word n'a pas encore été générée : cliquez d'abord sur « Générer la convocation Word ».");
-        const derniere = cd.pieces.find((p) => p.genere);
-        pieces = derniere ? [derniere.id] : [];
+        const pdf = cd.pieces.find((p) => /\.pdf$/i.test(p.nom_fichier));
+        if (!pdf) avert.push("Aucune convocation en PDF : générez le Word, modifiez-le, puis « Convertir en PDF ». Vous pouvez aussi joindre un fichier vous-même dans Outlook.");
+        pieces = pdf ? [pdf.id] : [];
         const rappel = nature === 'rappel';
         objet = `${rappel ? 'Rappel – ' : ''}Convocation à une commission ${NOMS_TYPE_COMMISSION[cd.type].toLowerCase()} – ${quand}`;
         corps = ['Bonjour,', '', `${rappel ? 'Pour rappel, vous' : 'Vous'} êtes convoqué(e) à une commission ${NOMS_TYPE_COMMISSION[cd.type].toLowerCase()} le ${quand}${cd.lieu ? `, ${cd.lieu}` : ''}.`, ...(disc ? ['Votre maître d’apprentissage est convié à cette instance.'] : []), '', 'Vous trouverez la convocation en pièce jointe. Merci de nous en accuser réception.', '', 'Cordialement,', etab.nom, etab.service, etab.coordonnees].join('\n');
@@ -191,7 +205,7 @@ export default function CommissionForm({ commissionId, jeuneId, type, motif, san
         {info && <p className="info">{info}</p>}
         <div className="actions">
           <button type="button" className="principal" onClick={() => enregistrer().then((n) => n && setInfo('Commission enregistrée.'))}>Enregistrer</button>
-          <button type="button" onClick={ouvrirWord} disabled={figee}>Générer la convocation Word</button>
+          <button type="button" onClick={ouvrirWord} disabled={figee}>Générer / ouvrir la convocation Word</button>
           <button type="button" onClick={() => preparerMail('convocation')} disabled={figee}>Préparer le mail de convocation…</button>
           <button type="button" onClick={() => preparerMail('participants')} disabled={figee || parts.length === 0}>Informer les participants…</button>
           {detail && (detail.statut === 'programmee' || detail.statut === 'convocations_envoyees') && <button type="button" onClick={() => preparerMail('rappel')}>Envoyer un rappel…</button>}
@@ -230,6 +244,7 @@ export default function CommissionForm({ commissionId, jeuneId, type, motif, san
                   <li key={p.id}>{p.nom_fichier} {p.genere ? <span className="etiquette st-bleu">généré</span> : null}
                     <span className="discret"> {formaterDateHeure(p.ajoute_le)}</span>{' '}
                     <button type="button" onClick={() => fichiers('ouvrirPiece', { id: p.id, commission: true }).catch((e) => setErreur(e.message))}>Ouvrir</button>
+                    {/\.docx$/i.test(p.nom_fichier) && <button type="button" onClick={() => convertirPdf(p.id)}>Convertir en PDF</button>}
                     {!p.genere && <button type="button" onClick={async () => { await appeler('commissions:piece:supprimer', p.id); await recharger(id!); }}>Retirer</button>}
                   </li>
                 ))}
@@ -253,11 +268,11 @@ export default function CommissionForm({ commissionId, jeuneId, type, motif, san
               <ChoixDestinataires destinataires={mail.destinataires} envoi={mail.envoi} onChange={(envoi) => setMail({ ...mail, envoi })} />
               <label>Objet<input value={mail.objet} onChange={(e) => setMail({ ...mail, objet: e.target.value })} /></label>
               <label>Message (modifiable)<textarea rows={12} value={mail.corps} onChange={(e) => setMail({ ...mail, corps: e.target.value })} /></label>
-              {mail.nature !== 'participants' && detail && detail.pieces.length > 0 && (
+              {mail.nature !== 'participants' && detail && detail.pieces.some((p) => !/\.docx$/i.test(p.nom_fichier)) && (
                 <>
                   <h3>Pièces jointes</h3>
                   <ul className="pieces">
-                    {detail.pieces.map((p) => (
+                    {detail.pieces.filter((p) => !/\.docx$/i.test(p.nom_fichier)).map((p) => (
                       <li key={p.id}><label className="case">
                         <input type="checkbox" checked={mail.pieces.includes(p.id)} onChange={(e) => setMail({ ...mail, pieces: e.target.checked ? [...mail.pieces, p.id] : mail.pieces.filter((x) => x !== p.id) })} />
                         {p.nom_fichier}

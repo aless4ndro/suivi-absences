@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const { ouvrir, TAILLE_MAX_PIECE } = require('./db.cjs');
 const { creerSession } = require('./auth.cjs');
 const { verifierSauvegarde, remplacer } = require('./sauvegarde.cjs');
-const { composer, repartir, preparerBrouillon, nomSur } = require('./courriel.cjs');
+const { composer, repartir, preparerBrouillon, nomSur, convertirWordEnPdf } = require('./courriel.cjs');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const execFileP = promisify(execFile);
@@ -238,10 +238,32 @@ function brancherIpc() {
       fs.mkdirSync(dossier, { recursive: true });
       const sur = nomSur(nom_fichier);
       const fichier = path.join(dossier, `${arg.commission ? 'c' : arg.sanction ? 's' : arg.rattrapage ? 'r' : ''}${arg.id}-${sur}`);
-      fs.writeFileSync(fichier, contenu);
+      // Document Word déjà modifié : la version enregistrée dans Word est reprise avant de rouvrir (rien n'est écrasé).
+      if (arg.commission && /\.docx$/i.test(nom_fichier) && fs.existsSync(fichier)) {
+        const modifie = fs.readFileSync(fichier);
+        if (!modifie.equals(contenu)) { try { db.appeler('commissions:piece:remplacer', { id: arg.id, contenu: modifie }); } catch { /* fichier non valide : version du dossier conservée */ } }
+      }
+      if (!(arg.commission && fs.existsSync(fichier))) fs.writeFileSync(fichier, contenu);
       const erreur = await shell.openPath(fichier);
       if (erreur) throw new Error(`Impossible d'ouvrir le fichier : ${erreur}`);
       return true;
+    }
+
+    // Convocation Word modifiée par l'utilisatrice → archivage de la version modifiée + PDF (Word, Windows).
+    if (action === 'commissionPdf') {
+      const { nom_fichier, contenu } = db.appeler('commissions:piece:contenu', arg.id);
+      if (!/\.docx$/i.test(nom_fichier)) throw new Error('Seul un document Word peut être converti.');
+      const dossier = dossierTemp();
+      fs.mkdirSync(dossier, { recursive: true });
+      const fichier = path.join(dossier, `c${arg.id}-${nomSur(nom_fichier)}`);
+      const modifie = fs.existsSync(fichier) ? fs.readFileSync(fichier) : null;
+      if (modifie && !modifie.equals(contenu)) db.appeler('commissions:piece:remplacer', { id: arg.id, contenu: modifie });
+      else fs.writeFileSync(fichier, contenu);
+      const pdf = fichier.replace(/\.docx$/i, '.pdf');
+      if (fs.existsSync(pdf)) fs.rmSync(pdf);
+      await convertirWordEnPdf(fichier, pdf, { executer: execFileP });
+      db.appeler('commissions:piece:ajouter', { commission_id: arg.commission_id, nom: nom_fichier.replace(/\.docx$/i, '.pdf'), contenu: fs.readFileSync(pdf), genere: true });
+      return { modifie: !!(modifie && !modifie.equals(contenu)) };
     }
 
     if (action === 'sauvegarder') {

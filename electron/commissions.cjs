@@ -200,15 +200,26 @@ function creerCommissions(db, h) {
       return { nom_fichier: r.nom_fichier, contenu: Buffer.from(r.contenu) };
     },
 
-    'commissions:piece:ajouter': ({ commission_id, nom, contenu }) => {
+    'commissions:piece:ajouter': ({ commission_id, nom, contenu, genere }) => {
       const c = lire(commission_id);
       const nom_fichier = String(nom);
       const buf = Buffer.from(contenu);
       if (!buf.length) throw new Error('Fichier vide.');
       if (h.tailleMax && buf.length > h.tailleMax) throw new Error('Fichier trop volumineux (10 Mo maximum).');
-      const id = Number(db.prepare('INSERT INTO commission_pieces (commission_id, nom_fichier, taille, contenu, genere, ajoute_le) VALUES (?,?,?,?,0,?)').run(c.id, nom_fichier, buf.length, buf, maintenant()).lastInsertRowid);
+      const id = Number(db.prepare('INSERT INTO commission_pieces (commission_id, nom_fichier, taille, contenu, genere, ajoute_le) VALUES (?,?,?,?,?,?)').run(c.id, nom_fichier, buf.length, buf, genere ? 1 : 0, maintenant()).lastInsertRowid);
       journaliser(c.id, 'Pièce', `Ajout : ${nom_fichier}`);
       return id;
+    },
+
+    // Reprend dans le dossier la version modifiée dans Word.
+    'commissions:piece:remplacer': ({ id, contenu }) => {
+      const r = db.prepare('SELECT commission_id, nom_fichier FROM commission_pieces WHERE id = ?').get(Number(id));
+      if (!r) throw new Error('Pièce introuvable.');
+      const buf = Buffer.from(contenu);
+      if (!buf.length || buf.subarray(0, 2).toString() !== 'PK') throw new Error("Le fichier Word enregistré n'est pas valide.");
+      db.prepare('UPDATE commission_pieces SET contenu = ?, taille = ?, ajoute_le = ? WHERE id = ?').run(buf, buf.length, maintenant(), Number(id));
+      journaliser(r.commission_id, 'Convocation', `Version modifiée enregistrée : ${r.nom_fichier}`);
+      return true;
     },
 
     'commissions:piece:supprimer': (pid) => {

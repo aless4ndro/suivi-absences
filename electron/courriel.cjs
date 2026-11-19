@@ -148,4 +148,29 @@ async function preparerBrouillon({ a, cc = '', cci = '', objet, corps, fichiers 
   return { methode: 'mailto', raison, nbPieces: fichiers.length };
 }
 
-module.exports = { composer, repartir, construireScript, encoder, urlMailto, preparerBrouillon, nomSur, formaterDuree };
+// Conversion d'un document Word en PDF avec Word lui-même (Windows). Le fichier Word est ouvert en lecture seule.
+function scriptWordVersPdf(docx, pdf) {
+  const q = (t) => String(t).replace(/'/g, "''");
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    '$w = New-Object -ComObject Word.Application',
+    '$w.Visible = $false',
+    'try {',
+    `  $d = $w.Documents.Open('${q(docx)}', $false, $true)`,
+    `  $d.ExportAsFixedFormat('${q(pdf)}', 17)`,
+    '  $d.Close($false)',
+    '} finally { $w.Quit() }',
+  ].join('\n');
+}
+async function convertirWordEnPdf(docx, pdf, deps) {
+  const plateforme = deps.plateforme ?? process.platform;
+  if (plateforme !== 'win32') throw new Error("La conversion en PDF utilise Microsoft Word (Windows). Dans Word : Fichier › Exporter › PDF, puis « Ajouter un document ».");
+  try {
+    await deps.executer('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoder(scriptWordVersPdf(docx, pdf))]);
+  } catch (e) {
+    throw new Error("Word n'a pas pu convertir le document. Dans Word : Fichier › Exporter › PDF, puis « Ajouter un document ». (" + String(e.message).split('\n')[0] + ')');
+  }
+  if (!fs.existsSync(pdf)) throw new Error("Le PDF n'a pas été créé.");
+}
+
+module.exports = { scriptWordVersPdf, convertirWordEnPdf, composer, repartir, construireScript, encoder, urlMailto, preparerBrouillon, nomSur, formaterDuree };
