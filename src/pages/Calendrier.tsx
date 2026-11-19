@@ -1,16 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { appeler, NOMS_TYPE_COMMISSION, type Commission, type Classe, type Evenement, type JourCalendrier, type Vacances } from '../api';
 import { aujourdhui, feries, formaterDate, NOMS_MOIS } from '../format';
+import ImportCalendrier from '../ImportCalendrier';
+import VersionsCalendrier from '../VersionsCalendrier';
 
-const MOIS_ANNEE: [number, number][] = [
-  [2026, 9], [2026, 10], [2026, 11], [2026, 12], [2027, 1], [2027, 2], [2027, 3], [2027, 4], [2027, 5], [2027, 6], [2027, 7],
-];
+const moisAnnee = (annee: string): [number, number][] => {
+  const a = Number(annee.slice(0, 4));
+  return [9, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8].map((m) => [m >= 9 ? a : a + 1, m]);
+};
+const anneeCourante = () => { const t = aujourdhui(); return Number(t.slice(5, 7)) >= 9 ? `${t.slice(0, 4)}-${Number(t.slice(0, 4)) + 1}` : `${Number(t.slice(0, 4)) - 1}-${t.slice(0, 4)}`; };
 const TYPES = { centre: 'Centre de formation', entreprise: 'Entreprise', autre: 'Autre (examen, férié…)' } as const;
 const p2 = (n: number) => String(n).padStart(2, '0');
 
 export default function Calendrier() {
   const [classes, setClasses] = useState<Classe[]>([]);
   const [classeId, setClasseId] = useState<number>(0);
+  const [annee, setAnnee] = useState(anneeCourante());
+  const [annees, setAnnees] = useState<string[]>([]);
+  const [importer, setImporter] = useState(false);
+  const [versions, setVersions] = useState(false);
   const [jours, setJours] = useState<Map<string, JourCalendrier>>(new Map());
   const [absences, setAbsences] = useState<Set<string>>(new Set());
   const [choisi, setChoisi] = useState<string | null>(null);
@@ -20,9 +28,10 @@ export default function Calendrier() {
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const vacancesDe = (iso: string) => vacances.find((v) => v.debut <= iso && iso <= v.fin);
 
-  const jf = useMemo(() => new Map([...feries(2026), ...feries(2027)]), []);
+  const a0 = Number(annee.slice(0, 4));
+  const jf = useMemo(() => new Map([...feries(a0), ...feries(a0 + 1)]), [a0]);
 
-  useEffect(() => { appeler<Vacances[]>('vacances:list').then(setVacances); }, []);
+  useEffect(() => { appeler<Vacances[]>('vacances:list').then(setVacances); appeler<string[]>('calendrier:annees').then(setAnnees); }, []);
   useEffect(() => {
     appeler<Classe[]>('classes:list').then((c) => {
       setClasses(c);
@@ -31,7 +40,7 @@ export default function Calendrier() {
   }, []);
 
   const charger = (id: number) => {
-    appeler<JourCalendrier[]>('calendrier:annee', id).then((l) => setJours(new Map(l.map((j) => [j.date, j]))));
+    appeler<JourCalendrier[]>('calendrier:annee:classe', { classe_id: id, annee_scolaire: annee }).then((l) => setJours(new Map(l.map((j) => [j.date, j]))));
     appeler<(Commission & { classe_code: string | null })[]>('commissions:list', {}).then((l) => {
       const code = classes.find((c) => c.id === id)?.code;
       setCommissions(l.filter((c) => c.date && c.statut !== 'annulee' && c.classe_code === code));
@@ -42,7 +51,7 @@ export default function Calendrier() {
   };
   useEffect(() => {
     if (classeId) { charger(classeId); setChoisi(null); }
-  }, [classeId]);
+  }, [classeId, annee]);
 
   const comptes = useMemo(() => {
     const n = { centre: 0, entreprise: 0, autre: 0 };
@@ -70,7 +79,14 @@ export default function Calendrier() {
 
   return (
     <>
-      <div className="entete"><h1>Calendrier d'alternance 2026-2027</h1></div>
+      <div className="entete">
+        <h1>Calendrier d'alternance {annee}</h1>
+        <div className="actions">
+          <select value={annee} onChange={(e) => setAnnee(e.target.value)}>{(annees.includes(annee) ? annees : [...annees, annee].sort()).map((a) => <option key={a}>{a}</option>)}</select>
+          <button className="principal" onClick={() => setImporter(true)}>Importer un calendrier…</button>
+          <button onClick={() => setVersions(true)}>Versions</button>
+        </div>
+      </div>
       <div className="onglets">
         {classes.map((c) => (
           <button key={c.id} className={classeId === c.id ? 'actif' : ''} onClick={() => setClasseId(c.id)}>{c.code}</button>
@@ -88,11 +104,11 @@ export default function Calendrier() {
       </div>
 
       {jours.size === 0 && (
-        <p className="discret">Le calendrier d'alternance de cette classe n'est pas encore chargé. Vous pouvez le remplir jour par jour en cliquant sur les dates, ou me le transmettre pour l'importer.</p>
+        <p className="discret">Cette classe n'a pas encore de calendrier pour cette année scolaire. Utilisez « Importer un calendrier… » (fichier Excel) ou remplissez-le jour par jour en cliquant sur les dates.</p>
       )}
 
       <div className="mois-grille">
-        {MOIS_ANNEE.map(([an, m]) => {
+        {moisAnnee(annee).map(([an, m]) => {
           const premier = new Date(Date.UTC(an, m - 1, 1));
           const nb = new Date(Date.UTC(an, m, 0)).getUTCDate();
           const decalage = (premier.getUTCDay() + 6) % 7;
@@ -147,6 +163,8 @@ export default function Calendrier() {
           <p className="discret">Cette modification ne concerne que la classe {classes.find((c) => c.id === classeId)?.code}.</p>
         </section>
       )}
+      {importer && <ImportCalendrier classes={classes} classeId={classeId} annee={annee} annees={annees.includes(annee) ? annees : [...annees, annee].sort()} onClose={() => setImporter(false)} onDone={(cid, an) => { setImporter(false); appeler<string[]>('calendrier:annees').then(setAnnees); setClasseId(cid); setAnnee(an); charger(cid); }} />}
+      {versions && classeId > 0 && <VersionsCalendrier classeId={classeId} code={classes.find((c) => c.id === classeId)?.code ?? ''} annee={annee} onClose={() => setVersions(false)} onDone={() => charger(classeId)} />}
     </>
   );
 }

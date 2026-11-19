@@ -11,6 +11,7 @@ const { creerCommissions } = require('./commissions.cjs');
 const { creerAlertes } = require('./alertes.cjs');
 const { creerTableauBord } = require('./tableau-bord.cjs');
 const { creerMails } = require('./mails.cjs');
+const { creerVersionsCalendrier } = require('./calendrier-versions.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -576,6 +577,27 @@ const MIGRATIONS = [
   // v20 : calendriers d'alternance 2026-2027 de la formation DTS IMRT (1re, 2e et 3e années).
   `
   ${sqlCalendriersImrt()}
+  `,
+  // v21 : versions de calendrier (archivage des remplacements, restauration) et origine du calendrier actif.
+  `
+  CREATE TABLE calendrier_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    classe_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    annee_scolaire TEXT NOT NULL,
+    jours TEXT NOT NULL,
+    nb_jours INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    motif TEXT NOT NULL,
+    archive_le TEXT NOT NULL
+  );
+  CREATE INDEX calendrier_versions_classe ON calendrier_versions (classe_id, annee_scolaire);
+  CREATE TABLE calendrier_actifs (
+    classe_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    annee_scolaire TEXT NOT NULL,
+    source TEXT NOT NULL,
+    maj_le TEXT NOT NULL,
+    PRIMARY KEY (classe_id, annee_scolaire)
+  );
   `,
 ];
 
@@ -1378,6 +1400,7 @@ function ouvrir(chemin) {
   const alertesModule = creerAlertes(db, { aujourdhui, horaires: () => actions['horaires:get'](), etablissement: () => actions['etablissement:get']() });
   const { recalculer: recalculerAlertes, ...alertesActions } = alertesModule;
   Object.assign(actions, alertesActions);
+  Object.assign(actions, creerVersionsCalendrier(db, { dateValide, vide, aujourdhui }));
   Object.assign(actions, creerMails(db, { vide, dateValide, aujourdhui, classeDe, etablissement: () => actions['etablissement:get']() }));
   Object.assign(actions, creerTableauBord(db, { aujourdhui, recalculerAlertes }));
   Object.assign(actions, creerCommissions(db, { tailleMax: TAILLE_MAX_PIECE, vide, dateValide, classeDe, destinatairesDe, aujourdhui, etablissement: () => actions['etablissement:get']() }));

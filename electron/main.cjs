@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const { ouvrir, TAILLE_MAX_PIECE } = require('./db.cjs');
 const { creerSession } = require('./auth.cjs');
 const { verifierSauvegarde, remplacer } = require('./sauvegarde.cjs');
+const { lireXlsx } = require('./calendrier-import.cjs');
 const { composer, repartir, preparerBrouillon, nomSur, convertirWordEnPdf } = require('./courriel.cjs');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
@@ -264,6 +265,37 @@ function brancherIpc() {
       await convertirWordEnPdf(fichier, pdf, { executer: execFileP });
       db.appeler('commissions:piece:ajouter', { commission_id: arg.commission_id, nom: nom_fichier.replace(/\.docx$/i, '.pdf'), contenu: fs.readFileSync(pdf), genere: true });
       return { modifie: !!(modifie && !modifie.equals(contenu)) };
+    }
+
+    // Import d'un calendrier de formation : lecture du fichier choisi (aperçu, rien n'est enregistré).
+    if (action === 'lireCalendrier') {
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: 'Choisir le calendrier de formation',
+        properties: ['openFile'],
+        filters: [{ name: 'Calendrier (Excel ou PDF)', extensions: ['xlsx', 'xls', 'pdf'] }],
+      });
+      if (canceled || !filePaths.length) return { annule: true };
+      const chemin = filePaths[0];
+      const nom = path.basename(chemin);
+      const ext = path.extname(nom).toLowerCase();
+      if (fs.statSync(chemin).size > 25 * 1024 * 1024) throw new Error('Fichier trop volumineux (25 Mo maximum).');
+      if (ext === '.xls') throw new Error("Ce fichier est au format Excel ancien (.xls). Ouvrez-le dans Excel puis « Enregistrer sous » au format .xlsx, et importez ce nouveau fichier.");
+      if (ext === '.pdf') throw new Error("La lecture automatique des PDF n'est pas encore disponible dans cette version. Utilisez la version Excel (.xlsx) du calendrier, ou saisissez les jours dans l'aperçu.");
+      if (ext !== '.xlsx') throw new Error('Format non pris en charge : choisissez un fichier .xlsx.');
+      return { nom, ...lireXlsx(fs.readFileSync(chemin), arg.annee_scolaire) };
+    }
+
+    // Validation d'un import : sauvegarde complète de la base avant tout remplacement.
+    if (action === 'validerCalendrier') {
+      let sauvegarde = null;
+      if (arg.operation === 'remplacer') {
+        const dossierSecu = path.join(app.getPath('userData'), 'avant-calendrier');
+        fs.mkdirSync(dossierSecu, { recursive: true });
+        sauvegarde = path.join(dossierSecu, `avant-calendrier-${horodatage()}.db`);
+        db.sauvegarder(sauvegarde);
+      }
+      const r = db.appeler('calendrier:import:valider', arg);
+      return { ...r, sauvegarde };
     }
 
     if (action === 'sauvegarder') {

@@ -302,3 +302,12 @@ export type LigneDashCommission = {
 export type ModeleMail = { id?: number; nom: string; categorie: string; objet: string; contenu: string; destinataires: string | null; actif: number };
 export type MailRendu = { objet: string; corps: string; destinataires: string | null; modele_nom: string | null; manquantes: string[] };
 export type MailHistorique = { id: number; quand: string; source: string; destinataires: string; objet: string; contenu: string; pieces: string | null; modele_nom: string | null; methode: string; statut: string };
+
+// ---- Import de calendriers ----
+export type TypeJour = 'centre' | 'entreprise' | 'autre';
+export type LectureCalendrier = {
+  annule?: boolean; nom: string; feuille: string; avertissements: string[];
+  jours: { date: string; cle: string }[];
+  legende: { cle: string; libelle: string | null; type_propose: TypeJour | null; nb: number }[];
+};
+export type VersionCalendrier = { id: number; source: string; motif: string; nb_jours: number; archive_le: string };

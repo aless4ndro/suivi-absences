@@ -917,3 +917,38 @@ test('calendriers DTS IMRT 2026-2027 : école, immersions en entreprise, jours b
   assert.ok(get('DTS IMRT 2ème année').get('2027-07-20'));
   db.fermer();
 });
+
+test('calendriers : ajout validé, remplacement archivé, restauration, années séparées', () => {
+  const db = ouvrir(':memory:');
+  const classes = db.appeler('classes:list');
+  const g = classes.find((c) => c.code === 'GPME 1ère année').id;
+  const jours = (a) => [{ date: `${a}-09-01`, type: 'centre' }, { date: `${a}-09-02`, type: 'entreprise', libelle: 'Immersion' }];
+
+  // 2027-2028 : classe sans calendrier → ajout ; un second « ajout » est refusé
+  assert.ok(db.appeler('calendrier:annees').includes('2027-2028'));
+  assert.throws(() => db.appeler('calendrier:import:valider', { classe_id: g, annee_scolaire: '2027-2028', operation: 'remplacer', jours: jours(2027), source: 'x.xlsx' }), /Ajouter/);
+  assert.strictEqual(db.appeler('calendrier:import:valider', { classe_id: g, annee_scolaire: '2027-2028', operation: 'ajouter', jours: jours(2027), source: 'x.xlsx' }).nb_jours, 2);
+  assert.throws(() => db.appeler('calendrier:import:valider', { classe_id: g, annee_scolaire: '2027-2028', operation: 'ajouter', jours: jours(2027), source: 'x.xlsx' }), /Remplacer/);
+  // dates hors de l'année scolaire / types invalides refusés, rien n'est écrit
+  assert.throws(() => db.appeler('calendrier:import:valider', { classe_id: g, annee_scolaire: '2027-2028', operation: 'remplacer', jours: [{ date: '2026-09-01', type: 'centre' }], source: 'x' }), /n'appartient pas/);
+  assert.throws(() => db.appeler('calendrier:import:valider', { classe_id: g, annee_scolaire: '2027-2028', operation: 'remplacer', jours: [{ date: '2027-09-01', type: 'zzz' }], source: 'x' }), /Type/);
+  assert.strictEqual(db.appeler('calendrier:annee:classe', { classe_id: g, annee_scolaire: '2027-2028' }).length, 2);
+
+  // l'année 2026-2027 n'est pas touchée
+  const avant = db.appeler('calendrier:annee:classe', { classe_id: g, annee_scolaire: '2026-2027' }).length;
+  assert.ok(avant > 200);
+
+  // remplacement : l'ancienne version est archivée puis restaurable
+  const r = db.appeler('calendrier:import:valider', { classe_id: g, annee_scolaire: '2027-2028', operation: 'remplacer', jours: [{ date: '2027-10-01', type: 'autre' }], source: 'v2.xlsx' });
+  assert.ok(r.archive_id);
+  assert.deepStrictEqual(db.appeler('calendrier:annee:classe', { classe_id: g, annee_scolaire: '2027-2028' }).map((j) => j.date), ['2027-10-01']);
+  const versions = db.appeler('calendrier:versions', { classe_id: g, annee_scolaire: '2027-2028' });
+  assert.strictEqual(versions.length, 1);
+  assert.strictEqual(versions[0].source, 'x.xlsx');
+  db.appeler('calendrier:version:restaurer', versions[0].id);
+  assert.deepStrictEqual(db.appeler('calendrier:annee:classe', { classe_id: g, annee_scolaire: '2027-2028' }).map((j) => j.date), ['2027-09-01', '2027-09-02']);
+  assert.strictEqual(db.appeler('calendrier:versions', { classe_id: g, annee_scolaire: '2027-2028' }).length, 2); // la version remplacée est archivée à son tour
+  assert.strictEqual(db.appeler('calendrier:annee:classe', { classe_id: g, annee_scolaire: '2026-2027' }).length, avant);
+  assert.strictEqual(db.appeler('calendrier:actif', { classe_id: g, annee_scolaire: '2027-2028' }).source.startsWith('Restauration'), true);
+  db.fermer();
+});
