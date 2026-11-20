@@ -32,7 +32,7 @@ npm run dist   # produit release/SuiviAbsences.exe (sous Windows)
 - [ ] À vérifier sous Windows avec le vrai Outlook (non testable hors Windows), y compris Cc / Cci
 - [x] Rattrapages (créneaux, total ou partiel, convocation, émargement)
 - [x] Calendriers d'alternance 2026-2027 et vacances scolaires zone B (en gris)
-- [x] Récapitulatifs mensuels envoyés aux entreprises via Outlook
+- [x] Récapitulatifs mensuels envoyés aux entreprises via Outlook Exports Excel calqués sur les tableaux de bord de l'établissement ; historique supprimable.
 - [x] Récapitulatif absences / retards / sanctions : filtres combinables (période, classes comparables, apprenti), tableaux de bord collectif et individuel (lot de PDF par classe), graphiques, export Excel et PDF, e-mail avec contrôle de confidentialité (sanctions jamais envoyées à une entreprise sans autorisation expresse), historique des extractions et des transmissions, résultats signalés « plus à jour » si les données sources changent
 - [x] WhatsApp : message préparé depuis la fiche apprenti (apprenti, maître d'apprentissage, entreprise) ou pour toute une classe ; la conversation s'ouvre dans WhatsApp, envoi relu et validé par l'utilisatrice ; historisé ; messages disciplinaires jamais vers une entreprise
 - [x] Professeurs principaux (affectations datées, remplacement, alertes)

@@ -340,7 +340,7 @@ export type ImportHistorique = {
 // ── Récapitulatif absences / retards / sanctions ──
 export type TotalRecap = { nb: number; minutes: number };
 export type DetailRecap = TotalRecap & { justifiees: TotalRecap; injustifiees: TotalRecap; en_attente: TotalRecap };
-export type EvenementRecap = { id: number; jeune_id: number; type: 'absence' | 'retard'; date_debut: string; date_fin: string | null; duree_minutes: number | null; motif_libelle: string | null; motif_statut: 'recevable' | 'irrecevable' | null };
+export type EvenementRecap = { id: number; jeune_id: number; type: 'absence' | 'retard'; date_debut: string; date_fin: string | null; duree_minutes: number | null; motif_libelle: string | null; motif_statut: 'recevable' | 'irrecevable' | null; nb_creneaux: number };
 export type SanctionRecap = { id: number; jeune_id: number; date_faits: string; date_decision: string | null; statut: string; duree: string | null; palier: string | null; motif: string };
 export type ApprentiRecap = { id: number; nom: string; prenom: string; classe_id: number; classe_code: string; absences: DetailRecap; retards: DetailRecap; evenements: EvenementRecap[]; sanctions: SanctionRecap[] };
 export type DomainesRecap = { absences?: boolean; retards?: boolean; sanctions?: boolean };

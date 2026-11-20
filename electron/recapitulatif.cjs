@@ -38,7 +38,8 @@ function creerRecapitulatif(db, h) {
     const classes = new Map(db.prepare('SELECT id, code, libelle FROM classes').all().map((x) => [x.id, x]));
     const evts = c.domaines.includes('absences') || c.domaines.includes('retards')
       ? db.prepare(
-        `SELECT e.id, e.jeune_id, e.type, e.date_debut, e.date_fin, e.duree_minutes, e.observations, m.libelle AS motif_libelle, m.statut AS motif_statut
+        `SELECT e.id, e.jeune_id, e.type, e.date_debut, e.date_fin, e.duree_minutes, e.observations, m.libelle AS motif_libelle, m.statut AS motif_statut,
+                (SELECT COUNT(*) FROM creneaux c WHERE c.evenement_id = e.id) AS nb_creneaux
          FROM evenements e LEFT JOIN motifs m ON m.id = e.motif_id WHERE e.date_debut >= ? AND e.date_debut <= ? ORDER BY e.date_debut, e.id`
       ).all(c.debut, c.fin).filter((e) => c.domaines.includes(e.type === 'absence' ? 'absences' : 'retards'))
       : [];
@@ -187,6 +188,22 @@ function creerRecapitulatif(db, h) {
         JSON.stringify(arg.destinataires ?? []), arg.type_document ?? 'pdf', (arg.domaines ?? []).join(','), (arg.domaines ?? []).includes('sanctions') ? 1 : 0,
         JSON.stringify(arg.pieces ?? []), arg.objet ?? null);
       return Number(info.lastInsertRowid);
+    },
+
+    // Suppression de l'historique (libère l'espace) : n'efface jamais les absences, retards ou sanctions, seulement les traces d'extraction / d'envoi.
+    'recap:extraction:supprimer': ({ ids }) => {
+      const l = [...new Set((ids ?? []).map(Number).filter(Boolean))];
+      if (!l.length) throw new Error('Aucune extraction sélectionnée.');
+      let n = 0;
+      for (const id of l) n += Number(db.prepare('DELETE FROM recap_extractions WHERE id = ?').run(id).changes);
+      return n;
+    },
+    'recap:transmission:supprimer': ({ ids }) => {
+      const l = [...new Set((ids ?? []).map(Number).filter(Boolean))];
+      if (!l.length) throw new Error('Aucune transmission sélectionnée.');
+      let n = 0;
+      for (const id of l) n += Number(db.prepare('DELETE FROM recap_transmissions WHERE id = ?').run(id).changes);
+      return n;
     },
 
     'recap:historique': () => ({

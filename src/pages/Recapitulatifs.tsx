@@ -5,7 +5,8 @@ import { anneeScolaireCourante } from '../FicheAssiduite';
 import ChoixDestinataires, { adressesInvalides, envoiParDefaut, repartition, type Envoi } from '../ChoixDestinataires';
 import CamembertRecevabilite from '../CamembertRecevabilite';
 import RecapMensuel from './RecapMensuel';
-import { feuillesExcel, graphiques, hm, htmlCollectif, htmlIndividuel, sansDomaine } from '../recapTableau';
+import { graphiques, hm, htmlCollectif, htmlIndividuel, sansDomaine } from '../recapTableau';
+import { classeurClasses, classeurIndividuels, feuilleIndividuel } from '../recapExcel';
 
 type Onglet = 'tableau' | 'mensuel' | 'historique';
 type Dom = { absences: boolean; retards: boolean; sanctions: boolean };
@@ -76,7 +77,9 @@ function TableauRecap() {
   async function excel() {
     if (!r) return;
     try {
-      const x = await documents<{ annule?: boolean; chemin?: string }>('xlsx', { feuilles: feuillesExcel(r, nomsClasses), nom: `Recapitulatif_${periode}` });
+      const feuilles = apVue ? [feuilleIndividuel(r, apVue)] : classeurClasses(r);
+      const nom = apVue ? `Tableau_de_bord_${apVue.nom}_${apVue.prenom}_${periode}` : `Tableau_de_bord_classes_${periode}`;
+      const x = await documents<{ annule?: boolean; chemin?: string }>('xlsx', { feuilles, nom });
       if (!x.annule) { setInfo(`Excel enregistré : ${x.chemin}`); await appeler('recap:extraction:enregistrer', { resultat: r, usage: 'excel' }); }
     } catch (e) { setErreur((e as Error).message); }
   }
@@ -257,7 +260,11 @@ function EnvoiRecap({ r, apprenti, extraction, periode, nomsClasses, fermer }: {
     const base = sanctionsDispo && avecSanctions ? r : sansDomaine(r, 'sanctions');
     return apprenti ? htmlIndividuel(base, base.apprentis.find((a) => a.id === apprenti.id) ?? apprenti) : htmlCollectif(base);
   };
-  const feuilles = () => feuillesExcel(sanctionsDispo && avecSanctions ? r : sansDomaine(r, 'sanctions'), nomsClasses);
+  const feuilles = () => {
+    const base = sanctionsDispo && avecSanctions ? r : sansDomaine(r, 'sanctions');
+    const a = apprenti ? base.apprentis.find((x) => x.id === apprenti.id) : null;
+    return a ? [feuilleIndividuel(base, a)] : classeurClasses(base);
+  };
   const nom = apprenti ? `Tableau_de_bord_${apprenti.nom}_${apprenti.prenom}_${periode}` : `Recapitulatif_${periode}`;
 
   async function controler() {
@@ -335,30 +342,58 @@ function EnvoiRecap({ r, apprenti, extraction, periode, nomsClasses, fermer }: {
 }
 
 function HistoriqueRecap() {
-  const [h, setH] = useState<{ extractions: ExtractionRecap[]; transmissions: TransmissionRecap[] } | null>(null);
+  type H = { extractions: ExtractionRecap[]; transmissions: TransmissionRecap[] };
+  const [h, setH] = useState<H | null>(null);
   const [verif, setVerif] = useState<Record<number, boolean>>({});
-  useEffect(() => { appeler<{ extractions: ExtractionRecap[]; transmissions: TransmissionRecap[] }>('recap:historique').then(setH); }, []);
+  const [selE, setSelE] = useState<number[]>([]);
+  const [selT, setSelT] = useState<number[]>([]);
+  const [msg, setMsg] = useState('');
+  const charger = () => appeler<H>('recap:historique').then(setH);
+  useEffect(() => { charger(); }, []);
   const crit = (x: ExtractionRecap) => {
     try { const c = JSON.parse(x.criteres); return `classes : ${c.classe_ids.length ? c.classe_ids.length : 'toutes'}${c.recherche ? ` ; « ${c.recherche} »` : ''}`; } catch { return ''; }
   };
+  const bascule = (l: number[], set: (v: number[]) => void, id: number) => set(l.includes(id) ? l.filter((i) => i !== id) : [...l, id]);
+  const tout = (l: number[], set: (v: number[]) => void, ids: number[]) => set(l.length === ids.length ? [] : ids);
+  async function supprimer(action: string, ids: number[], libelle: string, avert: string, reset: () => void) {
+    if (!ids.length) return;
+    if (!confirm(`Supprimer ${ids.length} ${libelle} de l'historique ?\n\n${avert}`)) return;
+    try {
+      const n = await appeler<number>(action, { ids });
+      setMsg(`${n} ${libelle} supprimé(s).`);
+      reset();
+      await charger();
+    } catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
+  }
   if (!h) return null;
+  const idsE = h.extractions.map((x) => x.id);
+  const idsT = h.transmissions.map((t) => t.id);
   return (
     <>
+      {msg && <p className="discret">{msg}</p>}
       <h3>Extractions</h3>
-      <table className="tableau"><thead><tr><th>Date</th><th>Utilisateur</th><th>Période</th><th>Domaines</th><th>Critères</th><th>Apprentis</th><th>Usage</th><th>État</th></tr></thead>
+      <div className="barre-actions">
+        <button disabled={!selE.length} onClick={() => supprimer('recap:extraction:supprimer', selE, 'extraction(s)', 'Les fichiers déjà enregistrés sur votre disque ne sont pas touchés.', () => setSelE([]))}>Supprimer la sélection ({selE.length})</button>
+      </div>
+      <table className="tableau"><thead><tr><th><input type="checkbox" aria-label="Tout sélectionner" checked={!!idsE.length && selE.length === idsE.length} onChange={() => tout(selE, setSelE, idsE)} /></th><th>Date</th><th>Utilisateur</th><th>Période</th><th>Domaines</th><th>Critères</th><th>Apprentis</th><th>Usage</th><th>État</th><th></th></tr></thead>
         <tbody>
-          {h.extractions.length === 0 && <tr><td colSpan={8} className="discret">Aucune extraction.</td></tr>}
+          {h.extractions.length === 0 && <tr><td colSpan={10} className="discret">Aucune extraction.</td></tr>}
           {h.extractions.map((x) => (
-            <tr key={x.id}><td>{formaterDate(x.date_extraction.slice(0, 10))} {x.date_extraction.slice(11, 16)}</td><td>{x.utilisateur ?? '—'}</td><td>{formaterDate(x.debut)} → {formaterDate(x.fin)}</td><td>{x.domaines}</td><td>{crit(x)}</td><td>{x.nb_apprentis}</td><td>{x.usage}</td>
-              <td>{verif[x.id] === undefined ? <button onClick={async () => { const v = await appeler<{ a_jour: boolean }>('recap:verifier', { extraction_id: x.id }); setVerif({ ...verif, [x.id]: v.a_jour }); }}>Vérifier</button> : verif[x.id] ? <span className="etiquette st-vert">À jour</span> : <span className="etiquette st-orange">Données modifiées : régénérer</span>}</td></tr>
+            <tr key={x.id}><td><input type="checkbox" checked={selE.includes(x.id)} onChange={() => bascule(selE, setSelE, x.id)} /></td><td>{formaterDate(x.date_extraction.slice(0, 10))} {x.date_extraction.slice(11, 16)}</td><td>{x.utilisateur ?? '—'}</td><td>{formaterDate(x.debut)} → {formaterDate(x.fin)}</td><td>{x.domaines}</td><td>{crit(x)}</td><td>{x.nb_apprentis}</td><td>{x.usage}</td>
+              <td>{verif[x.id] === undefined ? <button onClick={async () => { const v = await appeler<{ a_jour: boolean }>('recap:verifier', { extraction_id: x.id }); setVerif({ ...verif, [x.id]: v.a_jour }); }}>Vérifier</button> : verif[x.id] ? <span className="etiquette st-vert">À jour</span> : <span className="etiquette st-orange">Données modifiées : régénérer</span>}</td>
+              <td><button title="Supprimer cette ligne" onClick={() => supprimer('recap:extraction:supprimer', [x.id], 'extraction(s)', 'Les fichiers déjà enregistrés sur votre disque ne sont pas touchés.', () => setSelE(selE.filter((i) => i !== x.id)))}>Supprimer</button></td></tr>
           ))}
         </tbody></table>
       <h3>Transmissions</h3>
-      <table className="tableau"><thead><tr><th>Date</th><th>Utilisateur</th><th>Destinataire(s)</th><th>Apprenti</th><th>Document</th><th>Domaines</th><th>Sanctions</th></tr></thead>
+      <div className="barre-actions">
+        <button disabled={!selT.length} onClick={() => supprimer('recap:transmission:supprimer', selT, 'transmission(s)', 'Attention : la trace de ces envois (qui, à qui, quand) sera définitivement perdue.', () => setSelT([]))}>Supprimer la sélection ({selT.length})</button>
+      </div>
+      <table className="tableau"><thead><tr><th><input type="checkbox" aria-label="Tout sélectionner" checked={!!idsT.length && selT.length === idsT.length} onChange={() => tout(selT, setSelT, idsT)} /></th><th>Date</th><th>Utilisateur</th><th>Destinataire(s)</th><th>Apprenti</th><th>Document</th><th>Domaines</th><th>Sanctions</th><th></th></tr></thead>
         <tbody>
-          {h.transmissions.length === 0 && <tr><td colSpan={7} className="discret">Aucune transmission.</td></tr>}
+          {h.transmissions.length === 0 && <tr><td colSpan={9} className="discret">Aucune transmission.</td></tr>}
           {h.transmissions.map((t) => (
-            <tr key={t.id}><td>{formaterDate(t.date_envoi.slice(0, 10))} {t.date_envoi.slice(11, 16)}</td><td>{t.utilisateur ?? '—'}</td><td>{(JSON.parse(t.destinataires) as string[]).join(', ')}</td><td>{t.jeune_nom ? `${t.jeune_nom.toUpperCase()} ${t.jeune_prenom}` : 'collectif'}</td><td>{t.type_document}</td><td>{t.domaines}</td><td>{t.avec_sanctions ? 'oui' : 'non'}</td></tr>
+            <tr key={t.id}><td><input type="checkbox" checked={selT.includes(t.id)} onChange={() => bascule(selT, setSelT, t.id)} /></td><td>{formaterDate(t.date_envoi.slice(0, 10))} {t.date_envoi.slice(11, 16)}</td><td>{t.utilisateur ?? '—'}</td><td>{(JSON.parse(t.destinataires) as string[]).join(', ')}</td><td>{t.jeune_nom ? `${t.jeune_nom.toUpperCase()} ${t.jeune_prenom}` : 'collectif'}</td><td>{t.type_document}</td><td>{t.domaines}</td><td>{t.avec_sanctions ? 'oui' : 'non'}</td>
+              <td><button title="Supprimer cette ligne" onClick={() => supprimer('recap:transmission:supprimer', [t.id], 'transmission(s)', 'Attention : la trace de cet envoi sera définitivement perdue.', () => setSelT(selT.filter((i) => i !== t.id)))}>Supprimer</button></td></tr>
           ))}
         </tbody></table>
       <p className="discret">Dernier chargement : {aujourdhui().split('-').reverse().join('/')}. Les brouillons ouverts dans Outlook sont journalisés au moment où vous les validez.</p>

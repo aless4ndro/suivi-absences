@@ -110,3 +110,34 @@ test('whatsapp : numéros, destinataires, règles de confidentialité, historiqu
   assert.strictEqual(h[0].source, 'WhatsApp');
   db.fermer();
 });
+
+test('récap : suppression de l\'historique sans toucher aux données sources', () => {
+  const { db, a } = base();
+  abs(db, a, '2026-10-05');
+  const f = { debut: '2026-10-01', fin: '2026-10-31', domaines: { absences: true } };
+  const x1 = db.appeler('recap:extraction:enregistrer', { resultat: db.appeler('recap:calculer', f) });
+  const x2 = db.appeler('recap:extraction:enregistrer', { resultat: db.appeler('recap:calculer', f) });
+  const t = db.appeler('recap:transmission:enregistrer', { extraction_id: x1, jeune_ids: [a], domaines: ['absences'], destinataires: ['maitre@martin.example'], date: '2026-10-31', type_document: 'pdf' });
+  assert.strictEqual(db.appeler('recap:extraction:supprimer', { ids: [x1] }), 1);
+  assert.strictEqual(db.appeler('recap:historique').extractions.length, 1);
+  assert.strictEqual(db.appeler('recap:historique').transmissions.length, 1); // la transmission reste, extraction_id remis à vide
+  assert.strictEqual(db.appeler('recap:transmission:supprimer', { ids: [t] }), 1);
+  assert.strictEqual(db.appeler('recap:extraction:supprimer', { ids: [x2, 999] }), 1);
+  assert.throws(() => db.appeler('recap:extraction:supprimer', { ids: [] }), /Aucune/);
+  assert.strictEqual(db.appeler('evenements:list').length, 1);
+  assert.ok(db.appeler('recap:calculer', f).evenements === undefined);
+  db.fermer();
+});
+
+test('xlsx : styles, fusions, largeurs', () => {
+  const buf = ecrireXlsx([{ nom: 'Classe', fusions: ['A1:C1'], largeurs: { A: 22.3, C: 9 }, hauteurs: { 1: 28.5 }, lignes: [[{ v: 'Tableau de bord', s: 'titre' }, { s: 'titre' }, { s: 'titre' }], [{ v: 'Nom', s: 'th' }, { v: 'Total', s: 'thc' }, null], [{ v: 'DUPONT Léa', s: 'tda' }, { v: 3, s: 'tdna' }, null]] }]);
+  const z = lireZip(buf);
+  const x = z.get('xl/worksheets/sheet1.xml').toString();
+  assert.match(x, /<mergeCell ref="A1:C1"\/>/);
+  assert.match(x, /<col min="1" max="1" width="22.3"/);
+  assert.match(x, /ht="28.5"/);
+  const st = z.get('xl/styles.xml').toString();
+  assert.match(st, /FFD6DCE4/);
+  assert.match(st, /FF8497B0/);
+  assert.match(st, /FFF1F9FE/);
+});
