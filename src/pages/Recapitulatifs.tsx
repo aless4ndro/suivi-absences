@@ -3,6 +3,7 @@ import { appeler, documents, type ApprentiRecap, type Classe, type ControleEnvoi
 import { aujourdhui, formaterDate } from '../format';
 import { anneeScolaireCourante } from '../FicheAssiduite';
 import ChoixDestinataires, { adressesInvalides, envoiParDefaut, repartition, type Envoi } from '../ChoixDestinataires';
+import CamembertRecevabilite from '../CamembertRecevabilite';
 import RecapMensuel from './RecapMensuel';
 import { feuillesExcel, graphiques, hm, htmlCollectif, htmlIndividuel, sansDomaine } from '../recapTableau';
 
@@ -162,8 +163,10 @@ function TableauRecap() {
           <div className="graphes">{g.map((x) => <div key={x.id} className="graphe" dangerouslySetInnerHTML={{ __html: x.svg }} />)}</div>
           {g.length === 0 && <p className="discret">Aucune donnée à représenter sur cette période.</p>}
 
-          {!apVue && r.par_classe.length > 1 && (
+          {!apVue && r.par_classe.length > 1 && (r.criteres.domaines.includes('absences') || r.criteres.domaines.includes('retards')) && (
             <>
+              <h3>Recevables / irrecevables par classe</h3>
+              <CamembertRecevabilite debut={r.criteres.debut} fin={r.criteres.fin} classeIds={r.criteres.classe_ids} parClasse types={r.criteres.domaines.filter((d): d is 'absences' | 'retards' => d !== 'sanctions')} />
               <h3>Comparaison des classes</h3>
               <table className="tableau"><thead><tr><th>Classe</th><th>Apprentis</th><th>Absences</th><th>Heures</th><th>Retards</th><th>Heures</th><th>Sanctions</th></tr></thead>
                 <tbody>{r.par_classe.map((c) => <tr key={c.classe}><td>{c.classe}</td><td>{c.apprentis}</td><td>{c.absences}</td><td>{hm(c.min_absences)}</td><td>{c.retards}</td><td>{hm(c.min_retards)}</td><td>{c.sanctions}</td></tr>)}</tbody></table>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { appeler, documents, type Assiduite, type TotauxAssiduite } from './api';
 import { aujourdhui, formaterDate } from './format';
 import { envelopperFlux, htmlAssiduite } from './documents';
+import CamembertRecevabilite from './CamembertRecevabilite';
 
 // Année scolaire en cours : 1er septembre → 31 août.
 export function anneeScolaireCourante(): { debut: string; fin: string } {
@@ -73,6 +74,7 @@ export default function FicheAssiduite({ jeuneId, allerA }: {
               <div className="discret">{hm(d.rattrapage.validees)} déjà rattrapées sur {hm(d.rattrapage.dues)}</div>
             </div>
           </div>
+          {d.evenements.length > 0 && <CamembertRecevabilite jeuneId={jeuneId} debut={debut} fin={fin} />}
           <div className="actions">
             <button type="button" onClick={() => allerA?.('absences', { jeune_id: jeuneId, type: 'absence' })}>Voir les absences</button>
             <button type="button" onClick={() => allerA?.('absences', { jeune_id: jeuneId, type: 'retard' })}>Voir les retards</button>

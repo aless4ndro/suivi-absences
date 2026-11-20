@@ -39,20 +39,38 @@ export function svgCourbes(etiquettes: string[], series: Serie[], titre: string,
 }
 
 // Camembert (répartition) ; les parts à zéro sont omises, la légende donne les valeurs.
-export function svgCamembert(parts: { nom: string; valeur: number; couleur: string }[], titre: string, l = 360, h = 200): string {
+export function svgCamembert(parts: { nom: string; valeur: number; couleur: string }[], titre: string, l = 360, h = 200, format: (v: number) => string = String): string {
   const total = parts.reduce((t, p) => t + p.valeur, 0);
   const r = 62, cx = 80, cy = 112;
   let angle = -Math.PI / 2;
   const arcs = total === 0 ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#eee"/>` : parts.filter((p) => p.valeur > 0).map((p) => {
-    if (p.valeur === total) return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${p.couleur}"><title>${echapper(p.nom)} : ${p.valeur}</title></circle>`;
+    if (p.valeur === total) return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${p.couleur}"><title>${echapper(p.nom)} : ${format(p.valeur)}</title></circle>`;
     const a = (p.valeur / total) * Math.PI * 2;
     const [x1, y1, x2, y2] = [cx + r * Math.cos(angle), cy + r * Math.sin(angle), cx + r * Math.cos(angle + a), cy + r * Math.sin(angle + a)];
     const d = `M${cx},${cy} L${x1.toFixed(1)},${y1.toFixed(1)} A${r},${r} 0 ${a > Math.PI ? 1 : 0} 1 ${x2.toFixed(1)},${y2.toFixed(1)} Z`;
     angle += a;
-    return `<path d="${d}" fill="${p.couleur}"><title>${echapper(p.nom)} : ${p.valeur}</title></path>`;
+    return `<path d="${d}" fill="${p.couleur}"><title>${echapper(p.nom)} : ${format(p.valeur)}</title></path>`;
   }).join('');
-  const leg = parts.map((p, k) => `<rect x="170" y="${60 + k * 20}" width="10" height="10" fill="${p.couleur}"/><text x="186" y="${69 + k * 20}" font-size="10">${echapper(p.nom)} : ${p.valeur}${total ? ` (${Math.round((p.valeur / total) * 100)} %)` : ''}</text>`).join('');
-  return `<svg viewBox="0 0 ${l} ${h}" width="100%" role="img" aria-label="${echapper(titre)}"><text x="8" y="14" font-size="11" font-weight="700">${echapper(titre)}</text>${arcs}${leg}</svg>`;
+  const leg = parts.map((p, k) => `<rect x="170" y="${60 + k * 20}" width="10" height="10" fill="${p.couleur}"/><text x="186" y="${69 + k * 20}" font-size="10">${echapper(p.nom)} : ${format(p.valeur)}${total ? ` (${Math.round((p.valeur / total) * 100)} %)` : ''}</text>`).join('');
+  const trou = `<circle cx="${cx}" cy="${cy}" r="34" fill="#fff"/><text x="${cx}" y="${cy + 4}" font-size="11" font-weight="700" text-anchor="middle">${total ? format(total) : '—'}</text>`;
+  return `<svg viewBox="0 0 ${l} ${h}" width="100%" role="img" aria-label="${echapper(titre)}"><text x="8" y="14" font-size="11" font-weight="700">${echapper(titre)}</text>${arcs}${trou}${leg}</svg>`;
+}
+
+export type ModeRecevabilite = 'heures' | 'nombre';
+type DetailMin = { nb: number; minutes: number; justifiees: { nb: number; minutes: number }; injustifiees: { nb: number; minutes: number }; en_attente: { nb: number; minutes: number } };
+
+// Répartition recevable / irrecevable / en attente de motif (en heures par défaut) pour un ou plusieurs détails.
+export function partsRecevabilite(details: DetailMin[], mode: ModeRecevabilite = 'heures') {
+  const v = (k: 'justifiees' | 'injustifiees' | 'en_attente') => details.reduce((t, d) => t + (mode === 'heures' ? d[k].minutes : d[k].nb), 0);
+  return [
+    { nom: 'Recevables (justifiées)', valeur: v('justifiees'), couleur: COULEURS.just },
+    { nom: 'Irrecevables (injustifiées)', valeur: v('injustifiees'), couleur: COULEURS.injust },
+    { nom: 'En attente de motif', valeur: v('en_attente'), couleur: COULEURS.att },
+  ];
+}
+export const formatRecevabilite = (mode: ModeRecevabilite) => (mode === 'heures' ? hm : (n: number) => String(n));
+export function svgRecevabilite(details: DetailMin[], titre: string, mode: ModeRecevabilite = 'heures'): string {
+  return svgCamembert(partsRecevabilite(details, mode), titre, 380, 200, formatRecevabilite(mode));
 }
 
 export function graphiques(r: ResultatRecap): { id: string; titre: string; svg: string }[] {
@@ -65,15 +83,8 @@ export function graphiques(r: ResultatRecap): { id: string; titre: string; svg: 
   if (sa.length && mois.length) {
     out.push({ id: 'barres', titre: 'Absences et retards par mois', svg: svgBarres(mois, sa, 'Absences et retards par mois (nombre)') });
     out.push({ id: 'courbes', titre: 'Évolution', svg: svgCourbes(mois, sa, 'Évolution mensuelle (nombre)') });
-    const t = r.totaux;
-    out.push({
-      id: 'camembert', titre: 'Répartition',
-      svg: svgCamembert([
-        { nom: 'Justifiées', valeur: (dom.includes('absences') ? t.absences.justifiees.nb : 0) + (dom.includes('retards') ? t.retards.justifiees.nb : 0), couleur: COULEURS.just },
-        { nom: 'Injustifiées', valeur: (dom.includes('absences') ? t.absences.injustifiees.nb : 0) + (dom.includes('retards') ? t.retards.injustifiees.nb : 0), couleur: COULEURS.injust },
-        { nom: 'En attente de motif', valeur: (dom.includes('absences') ? t.absences.en_attente.nb : 0) + (dom.includes('retards') ? t.retards.en_attente.nb : 0), couleur: COULEURS.att },
-      ], 'Justifiées / injustifiées'),
-    });
+    const det = [...(dom.includes('absences') ? [r.totaux.absences] : []), ...(dom.includes('retards') ? [r.totaux.retards] : [])];
+    out.push({ id: 'camembert', titre: 'Répartition', svg: svgRecevabilite(det, 'Recevables / irrecevables (heures)') });
   }
   if (dom.includes('sanctions') && r.par_mois.some((m) => m.sanctions)) {
     out.push({ id: 'sanctions-mois', titre: 'Sanctions par mois', svg: svgBarres(mois, [{ nom: 'Sanctions', couleur: COULEURS.sanctions, valeurs: r.par_mois.map((m) => m.sanctions) }], 'Sanctions par mois (nombre)') });
