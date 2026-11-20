@@ -1,6 +1,6 @@
 {
   "name": "suivi-absences",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "private": true,
   "description": "Suivi des absences, retards et rattrapages (BTS / licence en alternance)",
   "author": "Alessandro",
