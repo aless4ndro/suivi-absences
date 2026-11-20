@@ -5,8 +5,8 @@ import { anneeScolaireCourante } from '../FicheAssiduite';
 import ChoixDestinataires, { adressesInvalides, envoiParDefaut, repartition, type Envoi } from '../ChoixDestinataires';
 import CamembertRecevabilite from '../CamembertRecevabilite';
 import RecapMensuel from './RecapMensuel';
-import { graphiques, hm, htmlCollectif, htmlIndividuel, sansDomaine } from '../recapTableau';
-import { classeurClasses, classeurIndividuels, feuilleIndividuel } from '../recapExcel';
+import { graphiques, hm, sansDomaine } from '../recapTableau';
+import { classeurClasses, feuilleIndividuel, pdfFeuilles } from '../recapExcel';
 
 type Onglet = 'tableau' | 'mensuel' | 'historique';
 type Dom = { absences: boolean; retards: boolean; sanctions: boolean };
@@ -86,7 +86,7 @@ function TableauRecap() {
   async function pdf() {
     if (!r) return;
     try {
-      const html = apVue ? htmlIndividuel(r, apVue) : htmlCollectif(r);
+      const html = pdfFeuilles(apVue ? [feuilleIndividuel(r, apVue)] : classeurClasses(r).slice(0, -1));
       const nom = apVue ? `Tableau_de_bord_${apVue.nom}_${apVue.prenom}_${periode}` : `Recapitulatif_${periode}`;
       const x = await documents<{ annule?: boolean; chemin?: string }>('pdf', { html, nom });
       if (!x.annule) { setInfo(`PDF enregistré : ${x.chemin}`); await appeler('recap:extraction:enregistrer', { resultat: r, usage: 'pdf' }); }
@@ -95,7 +95,7 @@ function TableauRecap() {
   async function lot() {
     if (!r) return;
     try {
-      const docs = r.apprentis.map((a) => ({ nom: `Tableau_de_bord_${a.classe_code}_${a.nom}_${a.prenom}_${periode}`, html: htmlIndividuel(r, a) }));
+      const docs = r.apprentis.map((a) => ({ nom: `Tableau_de_bord_${a.classe_code}_${a.nom}_${a.prenom}_${periode}`, html: pdfFeuilles([feuilleIndividuel(r, a)]) }));
       const x = await documents<{ annule?: boolean; dossier?: string; nb?: number }>('pdfLot', { documents: docs });
       if (!x.annule) { setInfo(`${x.nb} tableau(x) de bord individuel(s) enregistré(s) dans ${x.dossier}`); await appeler('recap:extraction:enregistrer', { resultat: r, usage: 'lot_individuels' }); }
     } catch (e) { setErreur((e as Error).message); }
@@ -258,7 +258,8 @@ function EnvoiRecap({ r, apprenti, extraction, periode, nomsClasses, fermer }: {
 
   const doc = () => {
     const base = sanctionsDispo && avecSanctions ? r : sansDomaine(r, 'sanctions');
-    return apprenti ? htmlIndividuel(base, base.apprentis.find((a) => a.id === apprenti.id) ?? apprenti) : htmlCollectif(base);
+    const a = apprenti ? base.apprentis.find((x) => x.id === apprenti.id) ?? apprenti : null;
+    return pdfFeuilles(a ? [feuilleIndividuel(base, a)] : classeurClasses(base).slice(0, -1));
   };
   const feuilles = () => {
     const base = sanctionsDispo && avecSanctions ? r : sansDomaine(r, 'sanctions');
