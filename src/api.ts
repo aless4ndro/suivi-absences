@@ -300,7 +300,7 @@ export type LigneDashCommission = {
 
 // ---- Bibliothèque de mails types ----
 export type ModeleMail = { id?: number; nom: string; categorie: string; objet: string; contenu: string; destinataires: string | null; actif: number };
-export type MailRendu = { objet: string; corps: string; destinataires: string | null; modele_nom: string | null; manquantes: string[] };
+export type MailRendu = { objet: string; corps: string; destinataires: string | null; modele_nom: string | null; categorie?: string | null; manquantes: string[] };
 export type MailHistorique = { id: number; quand: string; source: string; destinataires: string; objet: string; contenu: string; pieces: string | null; modele_nom: string | null; methode: string; statut: string };
 
 // ---- Import de calendriers ----
@@ -356,3 +356,5 @@ export type ResultatRecap = {
 export type ControleEnvoi = { ok: boolean; erreurs: string[]; avertissements: string[]; verifies: { adresse: string; nature: 'entreprise' | 'pp' | 'libre' }[] };
 export type ExtractionRecap = { id: number; date_extraction: string; utilisateur: string | null; debut: string; fin: string; domaines: string; criteres: string; empreinte: string; nb_apprentis: number; usage: string | null };
 export type TransmissionRecap = { id: number; extraction_id: number | null; date_envoi: string; utilisateur: string | null; jeune_id: number | null; jeune_nom: string | null; jeune_prenom: string | null; destinataires: string; type_document: string; domaines: string; avec_sanctions: number; pieces: string | null; objet: string | null };
+
+export type DestinataireWhatsApp = { cle: string; role: 'apprenti' | 'entreprise'; libelle: string; telephone: string | null; numero: string | null; utilisable: boolean; probleme: string | null };

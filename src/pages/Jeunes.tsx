@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { appeler, MOTIFS_SORTIE, NOMS_DECISION, NOMS_STATUT_COMMISSION, NOMS_TYPE_COMMISSION, type Commission, type MailHistorique, STATUTS_CONTRAT, type Classe, type Sanction, type Contact, type Entreprise, type Jeune, type LigneClasse, type LigneContrat } from '../api';
 import Bascule from './Bascule';
 import FicheAssiduite from '../FicheAssiduite';
+import { WhatsAppClasse, WhatsAppFiche } from '../WhatsApp';
 import PhotoApprenti from '../PhotoApprenti';
 import SanctionForm from '../SanctionForm';
 import CommissionForm from '../CommissionForm';
@@ -26,6 +27,8 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
   const [historique, setHistorique] = useState<LigneClasse[]>([]);
   const [classeInitiale, setClasseInitiale] = useState<number | null>(null);
   const [bascule, setBascule] = useState(false);
+  const [whatsClasse, setWhatsClasse] = useState(false);
+  const [whatsFiche, setWhatsFiche] = useState(false);
   const [voirSortis, setVoirSortis] = useState(false);
   const [contrats, setContrats] = useState<LigneContrat[]>([]);
   const [contratInitial, setContratInitial] = useState<{ e: number | null; n: string; t: string; m: string } | null>(null);
@@ -160,6 +163,7 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
       <div className="entete">
         <h1>Apprentis</h1>
         <div className="actions" style={{ marginTop: 0 }}>
+          <button onClick={() => setWhatsClasse(true)}>WhatsApp à une classe…</button>
           <button onClick={() => { setInfo(''); setBascule(true); }}>Bascule de rentrée…</button>
           <button className="principal" onClick={nouveau}>Ajouter un apprenti</button>
         </div>
@@ -186,6 +190,7 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
       {info && <p className="succes">{info}</p>}
       {erreur && !fiche && <p className="erreur">{erreur}</p>}
 
+      {whatsClasse && <WhatsAppClasse fermer={() => setWhatsClasse(false)} />}
       {bascule && <Bascule classes={classes} liste={liste} onClose={() => setBascule(false)} onDone={(m) => { setBascule(false); setInfo(m); charger(); }} />}
 
       {fiche && (
@@ -408,8 +413,10 @@ export default function Jeunes({ cible, apresCible, allerA, ouvrirFiche: ouvrirA
           )}
           {fiche.id && <FicheAssiduite key={fiche.id} jeuneId={fiche.id} allerA={allerA} />}
           {erreur && <p className="erreur">{erreur}</p>}
+          {whatsFiche && fiche.id && <WhatsAppFiche jeuneId={fiche.id} nom={`${fiche.prenom} ${fiche.nom}`} fermer={() => setWhatsFiche(false)} />}
           <div className="actions">
             <button type="submit" className="principal">Enregistrer</button>
+            {fiche.id && <button type="button" onClick={() => setWhatsFiche(true)}>Écrire sur WhatsApp</button>}
             <button type="button" onClick={() => setFiche(null)}>Annuler</button>
           </div>
         </form>

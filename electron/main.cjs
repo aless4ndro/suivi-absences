@@ -139,6 +139,14 @@ function brancherIpc() {
       return { chemin: filePath };
     }
 
+    // WhatsApp : le contrôle et le lien viennent de la base ; seul un lien wa.me est ouvert.
+    if (action === 'whatsapp') {
+      const r = db.appeler('whatsapp:preparer', arg);
+      if (!/^https:\/\/wa\.me\/\d{8,15}\?text=/.test(r.url)) throw new Error('Lien WhatsApp invalide.');
+      await shell.openExternal(r.url);
+      return { numero: r.numero };
+    }
+
     if (action === 'xlsx') {
       const nomX = nomSur(String(arg.nom || 'recapitulatif')).replace(/\.xlsx$/i, '') + '.xlsx';
       const { canceled, filePath } = await dialog.showSaveDialog(win, {

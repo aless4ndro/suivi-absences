@@ -14,6 +14,7 @@ const { creerMails } = require('./mails.cjs');
 const { creerVersionsCalendrier } = require('./calendrier-versions.cjs');
 const { creerImportDonnees } = require('./import-donnees.cjs');
 const { creerRecapitulatif } = require('./recapitulatif.cjs');
+const { creerWhatsApp } = require('./whatsapp.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -1468,6 +1469,7 @@ function ouvrir(chemin) {
   Object.assign(actions, creerImportDonnees(db, { vide, dateValide, aujourdhui, synchroniser, contratDe, classeDe }));
   Object.assign(actions, creerMails(db, { vide, dateValide, aujourdhui, classeDe, etablissement: () => actions['etablissement:get']() }));
   Object.assign(actions, creerRecapitulatif(db, { dateValide, aujourdhui, classeDe, destinatairesDe, etablissement: () => actions['etablissement:get']() }).actions);
+  Object.assign(actions, creerWhatsApp(db, { aujourdhui, contratDe }));
   Object.assign(actions, creerTableauBord(db, { aujourdhui, recalculerAlertes }));
   Object.assign(actions, creerCommissions(db, { tailleMax: TAILLE_MAX_PIECE, vide, dateValide, classeDe, destinatairesDe, aujourdhui, etablissement: () => actions['etablissement:get']() }));
 

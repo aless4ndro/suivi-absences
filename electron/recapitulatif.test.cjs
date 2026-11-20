@@ -84,3 +84,29 @@ test('xlsx : classeur lisible, caractères spéciaux protégés', () => {
   assert.match(z.get('xl/worksheets/sheet1.xml').toString(), /A &amp; &lt;B&gt;/);
   assert.match(z.get('xl/workbook.xml').toString(), /Récap   test/);
 });
+
+test('whatsapp : numéros, destinataires, règles de confidentialité, historique', () => {
+  const { normaliserNumero } = require('./whatsapp.cjs');
+  assert.strictEqual(normaliserNumero('06 12 34 56 78'), '33612345678');
+  assert.strictEqual(normaliserNumero('+33 6 12 34 56 78'), '33612345678');
+  assert.strictEqual(normaliserNumero('0033612345678'), '33612345678');
+  assert.strictEqual(normaliserNumero('+39 333 1234567'), '393331234567');
+  assert.strictEqual(normaliserNumero('12 34'), null);
+  const { db, cl, eid } = base();
+  const a = db.appeler('jeunes:save', { nom: 'Leroy', prenom: 'Zoé', classe_id: cl[0].id, telephone: '06 11 22 33 44', entreprise_id: eid, maitre_nom: 'M. Martin', maitre_telephone: '07 55 66 77 88' });
+  const d = db.appeler('whatsapp:destinataires', a);
+  assert.deepStrictEqual(d.map((x) => x.cle), ['apprenti', 'maitre']);
+  assert.ok(d.every((x) => x.utilisable));
+  const r = db.appeler('whatsapp:preparer', { jeune_id: a, cle: 'apprenti', texte: 'Bonjour Zoé & co', categorie: 'Retards' });
+  assert.strictEqual(r.url, 'https://wa.me/33611223344?text=Bonjour%20Zo%C3%A9%20%26%20co');
+  assert.throws(() => db.appeler('whatsapp:preparer', { jeune_id: a, cle: 'maitre', texte: 'x', categorie: 'Sanctions et avertissements' }), /disciplinaires/);
+  assert.throws(() => db.appeler('whatsapp:preparer', { jeune_id: a, cle: 'apprenti', texte: '  ' }), /vide/);
+  assert.throws(() => db.appeler('whatsapp:preparer', { jeune_id: a, cle: 'inconnu', texte: 'x' }), /introuvable/);
+  // un fixe n'a pas WhatsApp
+  db.appeler('jeunes:save', { id: a, nom: 'Leroy', prenom: 'Zoé', classe_id: cl[0].id, telephone: '02 32 00 00 00', entreprise_id: eid });
+  assert.throws(() => db.appeler('whatsapp:preparer', { jeune_id: a, cle: 'apprenti', texte: 'x' }), /fixe/);
+  const h = db.appeler('mails:historique', a);
+  assert.strictEqual(h.length, 1);
+  assert.strictEqual(h[0].source, 'WhatsApp');
+  db.fermer();
+});

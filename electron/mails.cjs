@@ -128,7 +128,7 @@ function creerMails(db, h) {
       const m = c.modele_id ? lireModele(c.modele_id) : { objet: c.objet ?? '', contenu: c.contenu ?? '', destinataires: null, nom: null };
       const v = valeurs(c);
       const manquantes = new Set();
-      return { objet: remplacer(m.objet, v, manquantes), corps: remplacer(m.contenu, v, manquantes), destinataires: m.destinataires, modele_nom: m.nom, manquantes: [...manquantes] };
+      return { objet: remplacer(m.objet, v, manquantes), corps: remplacer(m.contenu, v, manquantes), destinataires: m.destinataires, modele_nom: m.nom, categorie: m.categorie ?? null, manquantes: [...manquantes] };
     },
     // Historique unique des communications préparées pour un apprenti.
     'mails:archiver': (m) => {
