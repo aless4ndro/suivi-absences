@@ -19,7 +19,7 @@ const CH_CONTRAT = [['maitre_nom', 'maitre_nom'], ['maitre_fonction', 'maitre_fo
 
 // Classe de l'application correspondant au texte du fichier (formation, classe, année de formation) ; null si doute.
 function proposerClasse(texte, classes) {
-  const t = ` ${cleTexte(texte)} `;
+  const t = ` ${cleTexte(texte).replace(/([a-z])([123])\b/g, '$1 $2')} `;
   if (t.trim() === '') return null;
   const exact = classes.find((c) => cleTexte(c.code) === t.trim());
   if (exact) return exact.id;
@@ -29,7 +29,10 @@ function proposerClasse(texte, classes) {
   const candidats = classes.filter((c) => {
     const base = cleTexte(c.code.replace(/\d+\s*(ère|ème|e|er)\s+année/i, ''));
     const anneeC = Number(c.code.match(/(\d)\s*(?:ère|ème|e|er)\s+année/i)?.[1]);
-    if (!base || !base.split(' ').every((w) => t.includes(` ${w} `) || t.includes(w))) return false;
+    const mots = base.split(' ').filter(Boolean);
+    // « LCVM » s'écrit aussi « Licence CVM » : le L de licence est facultatif
+    const present = (w) => t.includes(` ${w} `) || t.includes(w) || (/^l[a-z]{2,}$/.test(w) && t.includes(w.slice(1)));
+    if (!mots.length || !mots.every(present)) return false;
     return annee === null || !anneeC || anneeC === annee;
   });
   return candidats.length === 1 ? candidats[0].id : null;
@@ -45,6 +48,8 @@ function creerImportDonnees(db, h) {
     return { debut: `${annee.slice(0, 4)}-09-01`, fin: `${annee.slice(5)}-08-31` };
   }
 
+  const etiquette = (l, i) => (l?.source ? `${l.source.feuille ? `${l.source.feuille}, ` : ''}ligne ${l.source.ligne}` : `ligne ${i + 2}`);
+
   // ---------- rapprochement ----------
   const apprentisBase = () => db.prepare(
     `SELECT j.id, j.nom, j.prenom, j.date_naissance, j.email, j.telephone, j.adresse, j.code_postal, j.ville, j.classe_id, j.sorti_le, c.code AS classe_code, e.nom AS entreprise_nom
@@ -52,21 +57,45 @@ function creerImportDonnees(db, h) {
   ).all();
   const entreprisesBase = () => db.prepare('SELECT * FROM entreprises').all();
 
-  function chercherApprenti(c, base) {
-    const k = `${cleTexte(c.nom)}|${cleTexte(c.prenom)}`;
-    const memes = base.filter((a) => `${cleTexte(a.nom)}|${cleTexte(a.prenom)}` === k);
+  // Clé d'identité insensible à l'ordre nom/prénom, aux accents, aux tirets
+  const cleIdentite = (nom, prenom) => cleTexte(`${nom ?? ''} ${prenom ?? ''}`).split(' ').filter(Boolean).sort().join(' ');
+  function distance(a, b) {
+    if (Math.abs(a.length - b.length) > 3) return 99;
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+
+  function chercherApprenti(c, base, classeId) {
+    const k = cleIdentite(c.nom, c.prenom);
+    const memes = base.filter((a) => cleIdentite(a.nom, a.prenom) === k);
     const sure = memes.filter((a) => c.date_naissance && a.date_naissance === c.date_naissance);
     if (sure.length === 1) return { statut: 'existant', candidats: sure, id: sure[0].id, raison: 'même nom, prénom et date de naissance' };
     if (sure.length > 1) return { statut: 'a_confirmer', candidats: sure, id: null, raison: 'plusieurs fiches identiques' };
-    // naissance absente d'un côté : rapprochement automatique seulement si les coordonnées concordent
-    const sansNaissance = memes.filter((a) => !a.date_naissance || !c.date_naissance);
-    if (sansNaissance.length === 1) {
-      const a = sansNaissance[0];
+    // naissance absente d'un côté : rapprochement automatique seulement si la classe ou les coordonnées concordent
+    const compatibles = memes.filter((a) => !a.date_naissance || !c.date_naissance);
+    if (compatibles.length === 1) {
+      const a = compatibles[0];
       const memeMail = c.email && a.email && c.email.toLowerCase() === a.email.toLowerCase();
       const memeTel = c.telephone && a.telephone && c.telephone.replace(/\D/g, '') === a.telephone.replace(/\D/g, '');
-      if (memeMail || memeTel) return { statut: 'existant', candidats: [a], id: a.id, raison: memeMail ? 'même nom, prénom et e-mail' : 'même nom, prénom et téléphone' };
+      const memeClasse = classeId && a.classe_id === Number(classeId);
+      if (memeMail || memeTel || memeClasse) return { statut: 'existant', candidats: [a], id: a.id, raison: memeMail ? 'même nom, prénom et e-mail' : memeTel ? 'même nom, prénom et téléphone' : 'même nom, prénom et même classe' };
     }
-    if (memes.length) return { statut: 'a_confirmer', candidats: memes, id: null, raison: memes.some((a) => a.date_naissance && c.date_naissance && a.date_naissance !== c.date_naissance) && !sansNaissance.length ? 'même nom mais date de naissance différente' : 'même nom et prénom, identité non confirmée' };
+    if (memes.length) return { statut: 'a_confirmer', candidats: memes, id: null, raison: memes.some((a) => a.date_naissance && c.date_naissance && a.date_naissance !== c.date_naissance) && !compatibles.length ? 'même nom mais date de naissance différente' : 'même nom et prénom, identité non confirmée' };
+    // nom approchant (faute de frappe, nom composé tronqué) : jamais rapproché automatiquement
+    const ta = k.split(' ');
+    const proches = base.filter((a) => {
+      const ka = cleIdentite(a.nom, a.prenom);
+      if (k.length >= 8 && distance(ka, k) <= 2) return true;
+      const tb = ka.split(' ');
+      const [court, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta]; // nom composé tronqué, faute dans un mot
+      return court.length >= 3 && court.every((w) => long.some((x) => x === w || (w.length >= 6 && distance(w, x) <= 1)));
+    });
+    if (proches.length) return { statut: 'a_confirmer', candidats: proches.slice(0, 5), id: null, raison: 'nom très proche d\'une fiche existante (faute de frappe ?)' };
     return { statut: 'nouveau', candidats: [], id: null, raison: '' };
   }
 
@@ -103,6 +132,7 @@ function creerImportDonnees(db, h) {
       const c = l.champs;
       const d = decL[i] ?? {};
       const anomalies = [...(l.anomalies ?? [])];
+      let exclusAuto = l.exclu_defaut ? `Exclue d'office : ${l.exclu_defaut}` : null;
       const bloquants = [];
       const manquants = [];
       if (!c.nom) bloquants.push('Nom manquant');
@@ -119,9 +149,9 @@ function creerImportDonnees(db, h) {
       // apprenti
       let apprenti = { statut: 'nouveau', candidats: [], id: null, raison: '' };
       if (c.nom && c.prenom) {
-        apprenti = chercherApprenti(c, appBase);
-        const k = `${cleTexte(c.nom)}|${cleTexte(c.prenom)}|${c.date_naissance ?? ''}`;
-        if (vuApprentis.has(k)) anomalies.push(`Doublon dans le fichier : même apprenti que la ligne ${vuApprentis.get(k) + 2}`);
+        apprenti = chercherApprenti(c, appBase, classeId);
+        const k = `${cleIdentite(c.nom, c.prenom)}|${c.date_naissance ?? ''}`;
+        if (vuApprentis.has(k)) anomalies.push(`Doublon dans le fichier : même apprenti que la ligne ${etiquette(arg.lignes[vuApprentis.get(k)], vuApprentis.get(k))}`);
         else vuApprentis.set(k, i);
       }
       if (d.apprenti_id === 'nouveau') apprenti = { ...apprenti, statut: 'nouveau', id: null, choix: true };
@@ -183,12 +213,13 @@ function creerImportDonnees(db, h) {
         }
       }
       let statut = 'ok';
-      if (d.exclu) statut = 'exclu';
+      const exclu = d.exclu ?? !!exclusAuto;
+      if (exclu) statut = 'exclu';
       else if (bloquants.length) statut = 'bloque';
       else if (apprenti.statut === 'a_confirmer' || groupes.get(cle)?.statut === 'a_confirmer') statut = 'a_confirmer';
-      else if (anomalies.length || manquants.length) statut = 'attention';
-      return { index: i, champs: c, anomalies, bloquants, manquants, statut, classe_id: classeId ? Number(classeId) : null, classe_code: toutes.find((x) => x.id === Number(classeId))?.code ?? null,
-        apprenti: { ...apprenti, candidats: apprenti.candidats.map(resume), completions, differences }, changement_classe: changementClasse, entreprise, contrat, exclu: !!d.exclu, texte_classe: texteClasse || null };
+      else if (anomalies.length) statut = 'attention';
+      return { index: i, source: l.source ?? null, etiquette: etiquette(l, i), champs: c, anomalies, bloquants, manquants, statut, classe_id: classeId ? Number(classeId) : null, classe_code: toutes.find((x) => x.id === Number(classeId))?.code ?? null,
+        apprenti: { ...apprenti, candidats: apprenti.candidats.map(resume), completions, differences }, changement_classe: changementClasse, entreprise, contrat, exclu, exclu_auto: exclusAuto, texte_classe: texteClasse || null };
     });
     const entreprises = [...groupes.values()].map((g) => ({ ...g, candidats: g.candidats.map(resume) }));
     // valeurs de classe du fichier à associer
@@ -203,7 +234,8 @@ function creerImportDonnees(db, h) {
         entreprises_nouvelles: new Set(actives.filter((l) => l.entreprise.cle && groupes.get(l.entreprise.cle).statut === 'nouveau').map((l) => l.entreprise.cle)).size,
         entreprises_existantes: new Set(actives.filter((l) => l.entreprise.cle && groupes.get(l.entreprise.cle).id).map((l) => l.entreprise.cle)).size,
         contrats: actives.filter((l) => ['creer', 'creer_sur_fiche', 'completer'].includes(l.contrat.action) || (l.contrat.action === 'nouveau_contrat' && l.contrat.appliquer)).length,
-        anomalies: lignes.reduce((n, l) => n + l.anomalies.length + l.bloquants.length, 0),
+        manquants: actives.filter((l) => l.manquants.length).length,
+        anomalies: lignes.filter((l) => !l.exclu).reduce((n, l) => n + l.anomalies.length + l.bloquants.length, 0),
       },
     };
   }
@@ -215,9 +247,9 @@ function creerImportDonnees(db, h) {
     const ana = analyser(arg);
     const retenues = ana.lignes.filter((l) => !l.exclu);
     const bloquees = retenues.filter((l) => l.bloquants.length);
-    if (bloquees.length) throw new Error(`${bloquees.length} ligne(s) ont une anomalie bloquante (ex. ligne ${bloquees[0].index + 2} : ${bloquees[0].bloquants[0]}). Corrigez-les ou excluez-les.`);
+    if (bloquees.length) throw new Error(`${bloquees.length} ligne(s) ont une anomalie bloquante (ex. ${bloquees[0].etiquette} : ${bloquees[0].bloquants[0]}). Corrigez-les ou excluez-les.`);
     const incertaines = retenues.filter((l) => l.statut === 'a_confirmer');
-    if (incertaines.length) throw new Error(`${incertaines.length} correspondance(s) incertaine(s) à trancher avant de valider (ex. ligne ${incertaines[0].index + 2}).`);
+    if (incertaines.length) throw new Error(`${incertaines.length} correspondance(s) incertaine(s) à trancher avant de valider (ex. ${incertaines[0].etiquette}).`);
     if (!retenues.length) throw new Error("Aucune ligne à importer.");
 
     const op = [];
@@ -257,6 +289,11 @@ function creerImportDonnees(db, h) {
       for (const l of retenues) {
         const c = l.champs;
         const entId = l.entreprise.cle ? entIds.get(l.entreprise.cle) : null;
+        for (const ct of entId ? c.contacts_extra ?? [] : []) {
+          if (db.prepare('SELECT 1 FROM contacts WHERE entreprise_id = ? AND nom = ? COLLATE NOCASE').get(entId, ct.nom)) continue;
+          const idc = Number(db.prepare('INSERT INTO contacts (entreprise_id, nom, fonction, telephone, email) VALUES (?,?,?,?,?)').run(entId, ct.nom, ct.fonction, ct.telephone, ct.email).lastInsertRowid);
+          journal('contact_cree', idc);
+        }
         const contratChamps = { maitre_nom: c.maitre_nom, maitre_fonction: c.maitre_fonction, maitre_telephone: c.maitre_telephone, maitre_email: c.maitre_email, contrat_type: c.contrat_type, contrat_debut: c.contrat_debut, contrat_fin: c.contrat_fin };
         let jeuneId = l.apprenti.id;
         if (!jeuneId) {
@@ -311,7 +348,7 @@ function creerImportDonnees(db, h) {
       }
       synchroniser();
       const nbAnomalies = ana.resume.anomalies;
-      const rapport = ana.lignes.filter((l) => l.anomalies.length || l.manquants.length || l.bloquants.length).map((l) => ({ ligne: l.index + 2, nom: `${l.champs.nom ?? ''} ${l.champs.prenom ?? ''}`.trim(), anomalies: [...l.bloquants, ...l.anomalies], manquants: l.manquants, exclue: l.exclu }));
+      const rapport = ana.lignes.filter((l) => l.anomalies.length || l.manquants.length || l.bloquants.length).map((l) => ({ ligne: l.etiquette, nom: `${l.champs.nom ?? ''} ${l.champs.prenom ?? ''}`.trim(), anomalies: [...l.bloquants, ...l.anomalies], manquants: l.manquants, exclue: l.exclu }));
       db.prepare('UPDATE imports SET nb_apprentis_crees=?, nb_apprentis_maj=?, nb_entreprises_creees=?, nb_entreprises_maj=?, nb_rapprochements=?, nb_anomalies=?, rapport=? WHERE id=?')
         .run(compteurs.apprentis_crees, compteurs.apprentis_maj, compteurs.entreprises_creees, compteurs.entreprises_maj, compteurs.rapprochements, nbAnomalies, JSON.stringify(rapport), importId);
       db.exec('COMMIT');
@@ -343,7 +380,8 @@ function creerImportDonnees(db, h) {
           const utilise = db.prepare('SELECT COUNT(*) AS n FROM jeune_entreprises WHERE entreprise_id = ?').get(o.cible_id).n;
           if (utilise) gardes.push(`${e.nom} : encore rattachée à un apprenti, fiche conservée`);
           else { db.prepare('DELETE FROM entreprises WHERE id = ?').run(o.cible_id); defaits++; }
-        } else if (o.type === 'periode_contrat_creee') { db.prepare('DELETE FROM jeune_entreprises WHERE id = ?').run(o.cible_id); defaits++; }
+        } else if (o.type === 'contact_cree') { db.prepare('DELETE FROM contacts WHERE id = ?').run(o.cible_id); defaits++; }
+        else if (o.type === 'periode_contrat_creee') { db.prepare('DELETE FROM jeune_entreprises WHERE id = ?').run(o.cible_id); defaits++; }
         else if (o.type === 'periode_classe_creee') { db.prepare('DELETE FROM jeune_classes WHERE id = ?').run(o.cible_id); defaits++; }
         else if (['apprenti_maj', 'entreprise_maj', 'periode_contrat_maj'].includes(o.type) && avant) {
           const table = { apprenti_maj: 'jeunes', entreprise_maj: 'entreprises', periode_contrat_maj: 'jeune_entreprises' }[o.type];

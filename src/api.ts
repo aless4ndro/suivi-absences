@@ -313,11 +313,12 @@ export type LectureCalendrier = {
 export type VersionCalendrier = { id: number; source: string; motif: string; nb_jours: number; archive_le: string };
 
 // ---- Import des apprentis, entreprises et contrats ----
-export type ImportFichier = { annule?: boolean; nom: string; entetes: string[]; lignes: string[][]; champs: (string | null)[]; liste_champs: Record<string, string> };
+export type ImportFeuille = { nom: string | null; entetes: string[]; lignes: string[][]; numeros: number[]; champs: (string | null)[] };
+export type ImportFichier = { annule?: boolean; nom: string; ignorees: string[]; feuilles: ImportFeuille[]; liste_champs: Record<string, string> };
 export type ImportCandidat = { id: number; nom: string; prenom?: string; date_naissance: string | null; classe_code: string | null; entreprise_nom: string | null; siret: string | null; ville: string | null; code_postal: string | null };
 export type ImportDiff = { champ: string; actuel?: string; fichier: string; valeur?: string; remplacer?: boolean };
 export type ImportLigne = {
-  index: number; champs: Record<string, string | null>; anomalies: string[]; bloquants: string[]; manquants: string[];
+  index: number; etiquette: string; exclu_auto?: string | null; champs: Record<string, any>; anomalies: string[]; bloquants: string[]; manquants: string[];
   statut: 'ok' | 'attention' | 'a_confirmer' | 'bloque' | 'exclu'; classe_id: number | null; classe_code: string | null; exclu: boolean; texte_classe: string | null;
   apprenti: { statut: 'nouveau' | 'existant' | 'a_confirmer'; id: number | null; raison: string; candidats: ImportCandidat[]; completions: ImportDiff[]; differences: ImportDiff[] };
   changement_classe: { de: string; vers: string; appliquer: boolean } | null;
@@ -327,7 +328,7 @@ export type ImportLigne = {
 export type ImportEntreprise = { cle: string; statut: string; id: number | null; raison: string; nom: string; siret: string | null; candidats: ImportCandidat[]; completions: ImportDiff[]; differences: ImportDiff[]; lignes: number[] };
 export type ImportAnalyse = {
   lignes: ImportLigne[]; entreprises: ImportEntreprise[]; valeursClasse: { texte: string; cle: string; classe_id: number | null }[];
-  resume: { total: number; exclues: number; bloquees: number; a_confirmer: number; apprentis_nouveaux: number; apprentis_existants: number; entreprises_nouvelles: number; entreprises_existantes: number; contrats: number; anomalies: number };
+  resume: { total: number; exclues: number; bloquees: number; a_confirmer: number; apprentis_nouveaux: number; apprentis_existants: number; manquants: number; entreprises_nouvelles: number; entreprises_existantes: number; contrats: number; anomalies: number };
 };
 export type ImportDecisions = { lignes: Record<number, { exclu?: boolean; apprenti_id?: number | 'nouveau'; remplacer?: string[]; classe_changer?: boolean; nouveau_contrat?: boolean; classe_id?: number }>; entreprises: Record<string, { id?: number | 'nouveau'; remplacer?: string[] }> };
 export type ImportHistorique = {

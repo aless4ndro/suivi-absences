@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { appeler, fichiers, type ImportAnalyse, type ImportCandidat, type ImportDecisions, type ImportFichier, type ImportHistorique, type ImportLigne } from '../api';
 import { formaterDate, formaterDateHeure } from '../format';
 
-type LigneN = { champs: Record<string, string | null>; anomalies: string[] };
+type LigneN = { champs: Record<string, any>; anomalies: string[]; source?: { feuille: string | null; ligne: number } };
 type Classe = { id: number; code: string; libelle: string };
 
 const CHAMPS_EDITABLES: [string, string][] = [
@@ -32,7 +32,8 @@ export default function ImportDonnees() {
   const [annee, setAnnee] = useState(anneeCourante());
   const [classeDefaut, setClasseDefaut] = useState('');
   const [fichier, setFichier] = useState<ImportFichier | null>(null);
-  const [champs, setChamps] = useState<(string | null)[]>([]);
+  const [champs, setChamps] = useState<(string | null)[][]>([]);
+  const [feuillesActives, setFeuillesActives] = useState<boolean[]>([]);
   const [lignes, setLignes] = useState<LigneN[]>([]);
   const [classesMap, setClassesMap] = useState<Record<string, number>>({});
   const [decisions, setDecisions] = useState<ImportDecisions>({ lignes: {}, entreprises: {} });
@@ -59,14 +60,19 @@ export default function ImportDonnees() {
     try {
       const f = await fichiers<ImportFichier>('lireImport');
       if (f.annule) return;
-      setFichier(f); setChamps(f.champs); setEtape('colonnes');
+      setFichier(f); setChamps(f.feuilles.map((x) => x.champs)); setFeuillesActives(f.feuilles.map((x) => x.champs.includes('nom') || x.champs.includes('nom_prenom'))); setEtape('colonnes');
     } catch (e) { setErreur((e as Error).message); }
   }
   async function continuerColonnes() {
     if (!fichier) return;
-    if (!(champs.includes('nom') || champs.includes('nom_prenom')) || !(champs.includes('prenom') || champs.includes('nom_prenom'))) { setErreur('Indiquez au moins les colonnes du nom et du prénom des apprentis.'); return; }
+    const choisies = fichier.feuilles.map((f, i) => ({ ...f, champs: champs[i] })).filter((_, i) => feuillesActives[i]);
+    if (!choisies.length) { setErreur('Cochez au moins une feuille à importer.'); return; }
+    for (const f of choisies) {
+      if (!(f.champs.includes('nom') || f.champs.includes('nom_prenom')) || !(f.champs.includes('prenom') || f.champs.includes('nom_prenom'))) { setErreur(`Feuille « ${f.nom ?? 'fichier'} » : indiquez les colonnes du nom et du prénom des apprentis.`); return; }
+    }
     try {
-      const l = await fichiers<LigneN[]>('normaliserImport', { lignes: fichier.lignes, champs });
+      const l = await fichiers<LigneN[]>('normaliserImport', { feuilles: choisies.map((f) => ({ nom: f.nom, lignes: f.lignes, numeros: f.numeros, champs: f.champs })) });
+      if (!l.length) { setErreur('Aucun apprenti trouvé dans les feuilles choisies.'); return; }
       setLignes(l); setDecisions({ lignes: {}, entreprises: {} }); setClassesMap({}); setOuverte(null); setErreur(''); setEtape('apercu');
     } catch (e) { setErreur((e as Error).message); }
   }
@@ -149,19 +155,26 @@ export default function ImportDonnees() {
 
       {onglet === 'import' && etape === 'colonnes' && fichier && (
         <section className="fiche">
-          <h3>Colonnes du fichier « {fichier.nom} » — {fichier.lignes.length} ligne(s)</h3>
-          <p className="discret">Vérifiez la correspondance proposée ; corrigez-la si besoin.</p>
-          <table className="table">
-            <thead><tr><th>Colonne du fichier</th><th>Exemples</th><th>Information correspondante</th></tr></thead>
-            <tbody>{fichier.entetes.map((e, i) => (
-              <tr key={i}>
-                <td><strong>{e || `(colonne ${i + 1})`}</strong></td>
-                <td className="discret">{fichier.lignes.slice(0, 3).map((l) => l[i]).filter(Boolean).join(' · ')}</td>
-                <td><select value={champs[i] ?? ''} onChange={(ev) => setChamps(champs.map((c, k) => (k === i ? ev.target.value || null : c === ev.target.value && ev.target.value ? null : c)))}>
-                  <option value="">— ignorer —</option>{Object.entries(fichier.liste_champs).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select></td>
-              </tr>))}</tbody>
-          </table>
+          <h3>Fichier « {fichier.nom} » — {fichier.feuilles.length} feuille(s), {fichier.feuilles.reduce((n, f) => n + f.lignes.length, 0)} ligne(s)</h3>
+          <p className="discret">Pour chaque feuille, vérifiez la correspondance proposée entre les colonnes et les informations de l'application ; corrigez-la si besoin. Sans colonne « classe », le nom de la feuille sert à retrouver la classe.</p>
+          {fichier.feuilles.map((f, fi) => (
+            <div key={fi} style={{ marginBottom: 18 }}>
+              <label className="case"><input type="checkbox" checked={!!feuillesActives[fi]} onChange={(e) => setFeuillesActives(feuillesActives.map((a, k) => (k === fi ? e.target.checked : a)))} /> <strong>{f.nom ?? 'Fichier'}</strong> — {f.lignes.length} ligne(s)</label>
+              {feuillesActives[fi] && (
+                <table className="table">
+                  <thead><tr><th>Colonne</th><th>Exemples</th><th>Information correspondante</th></tr></thead>
+                  <tbody>{f.entetes.map((e, i) => (f.champs[i] || f.lignes.some((l) => l[i])) ? (
+                    <tr key={i}>
+                      <td><strong>{e || `(colonne ${i + 1})`}</strong></td>
+                      <td className="discret">{f.lignes.slice(0, 2).map((l) => (l[i] ?? '').split(/\r?\n/)[0]).filter(Boolean).join(' · ')}</td>
+                      <td><select value={champs[fi]?.[i] ?? ''} onChange={(ev) => setChamps(champs.map((cs, k) => (k !== fi ? cs : cs.map((c, j) => (j === i ? ev.target.value || null : c === ev.target.value && ev.target.value ? null : c)))))}>
+                        <option value="">— ignorer —</option>{Object.entries(fichier.liste_champs).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select></td>
+                    </tr>) : null)}</tbody>
+                </table>
+              )}
+            </div>
+          ))}
           <div className="actions"><button className="principal" onClick={continuerColonnes}>Analyser le fichier</button><button onClick={recommencer}>Annuler</button></div>
         </section>
       )}
@@ -174,7 +187,7 @@ export default function ImportDonnees() {
             <div className="carte"><span className="chiffre">{analyse.resume.entreprises_nouvelles}</span><strong>Entreprises à créer</strong></div>
             <div className="carte"><span className="chiffre">{analyse.resume.entreprises_existantes}</span><strong>Entreprises déjà enregistrées</strong></div>
             <div className="carte"><span className="chiffre">{analyse.resume.contrats}</span><strong>Contrats associés</strong></div>
-            <div className={`carte${analyse.resume.anomalies || analyse.resume.a_confirmer ? ' alerte' : ''}`}><span className="chiffre">{analyse.resume.anomalies}</span><strong>Anomalies</strong><span className="discret">{analyse.resume.a_confirmer} à trancher · {analyse.resume.exclues} exclue(s)</span></div>
+            <div className={`carte${analyse.resume.anomalies || analyse.resume.a_confirmer ? ' alerte' : ''}`}><span className="chiffre">{analyse.resume.anomalies}</span><strong>Anomalies</strong><span className="discret">{analyse.resume.a_confirmer} à trancher · {analyse.resume.exclues} exclue(s) · {analyse.resume.manquants} avec infos manquantes</span></div>
           </div>
 
           {analyse.valeursClasse.length > 0 && (
@@ -223,7 +236,7 @@ export default function ImportDonnees() {
               <select value={filtre} onChange={(e) => setFiltre(e.target.value as 'toutes' | 'problemes')}><option value="toutes">Toutes les lignes</option><option value="problemes">Seulement celles à vérifier</option></select>
             </div>
             <table className="table">
-              <thead><tr><th>Importer</th><th>Ligne</th><th>État</th><th>Apprenti</th><th>Classe</th><th>Entreprise</th><th>Fiche</th><th /></tr></thead>
+              <thead><tr><th>Importer</th><th>Ligne du fichier</th><th>État</th><th>Apprenti</th><th>Classe</th><th>Entreprise</th><th>Fiche</th><th /></tr></thead>
               <tbody>{visibles.map((l) => <LigneImport key={l.index} l={l} ouverte={ouverte === l.index} basculerOuverte={() => setOuverte(ouverte === l.index ? null : l.index)}
                 classes={classes} entNom={analyse.entreprises.find((e) => e.cle === l.entreprise.cle)?.nom ?? ''} dec={decisions.lignes[l.index] ?? {}} majLigne={majLigne} editer={editer} basculer={basculer} />)}</tbody>
             </table>
@@ -268,7 +281,7 @@ function LigneImport({ l, ouverte, basculerOuverte, classes, entNom, dec, majLig
     <>
       <tr style={{ opacity: l.exclu ? 0.5 : 1 }}>
         <td><input type="checkbox" checked={!l.exclu} onChange={(e) => majLigne(l.index, { exclu: !e.target.checked })} /></td>
-        <td>{l.index + 2}</td>
+        <td>{l.etiquette}</td>
         <td><span style={{ color: COULEURS[l.statut], fontWeight: 600 }}>{STATUTS[l.statut]}</span></td>
         <td>{l.champs.nom} {l.champs.prenom}{l.champs.date_naissance && <div className="discret">né(e) le {formaterDate(l.champs.date_naissance)}</div>}</td>
         <td>{l.classe_code ?? <span style={{ color: '#c0392b' }}>?</span>}</td>
@@ -278,7 +291,9 @@ function LigneImport({ l, ouverte, basculerOuverte, classes, entNom, dec, majLig
       </tr>
       {ouverte && (
         <tr><td colSpan={8}>
+          {l.exclu_auto && <p className="discret">{l.exclu_auto}. Cochez « Importer » pour l'inclure malgré tout.</p>}
           {[...l.bloquants, ...l.anomalies].map((m) => <p key={m} className="alerte-texte">⚠ {m}</p>)}
+          {(l.champs.contacts_extra ?? []).length > 0 && <p className="discret">Autres interlocuteurs ajoutés à l'entreprise : {(l.champs.contacts_extra as { nom: string; fonction: string | null }[]).map((c) => `${c.nom}${c.fonction ? ` (${c.fonction})` : ''}`).join(', ')}</p>}
           {l.manquants.length > 0 && <p className="discret">Informations manquantes (à compléter plus tard) : {l.manquants.map((m) => NOMS_CHAMP[m] ?? m).join(', ')}</p>}
           <div className="grille">
             {CHAMPS_EDITABLES.map(([k, lib]) => <label key={k}>{lib}<input value={l.champs[k] ?? ''} onChange={(e) => editer(l.index, k, e.target.value)} /></label>)}

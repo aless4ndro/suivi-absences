@@ -1,13 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { ouvrir } = require('./db.cjs');
-const { lireTableau, reconnaitreColonnes, normaliserLigne } = require('./import-tableau.cjs');
+const { lireTableau, reconnaitreColonnes, normaliserFeuilles } = require('./import-tableau.cjs');
 const { proposerClasse } = require('./import-donnees.cjs');
 
 const csv = (t) => {
-  const tb = lireTableau(Buffer.from(t, 'utf8'), '.csv');
-  const champs = reconnaitreColonnes(tb.entetes);
-  return tb.lignes.map((l) => normaliserLigne(l, champs));
+  const f = lireTableau(Buffer.from(t, 'utf8'), '.csv').feuilles[0];
+  return normaliserFeuilles([{ ...f, champs: reconnaitreColonnes(f.entetes, f.lignes) }]);
 };
 const base = 'Nom;Prénom;Date de naissance;Téléphone;E-mail;Formation;Année de formation;Raison sociale;SIRET;Code postal entreprise;Ville entreprise;Nom du tuteur;Début du contrat;Fin du contrat;Type de contrat\n';
 
@@ -57,9 +56,12 @@ test('import : création, doublons, entreprise unique, incertains bloquants, ann
   // 2e import du même fichier : tout est reconnu, rien n'est recréé
   const b = db.appeler('import:analyser', arg);
   assert.strictEqual(b.lignes[0].apprenti.statut, 'existant');
-  assert.strictEqual(b.lignes[1].apprenti.statut, 'a_confirmer'); // pas de date de naissance ni coordonnées : on ne devine pas
-  assert.throws(() => db.appeler('import:appliquer', { arg, utilisateur: 't' }), /incertaine/);
-  const dec = { lignes: { 1: { apprenti_id: jeunes.find((j) => j.nom === 'Petit').id }, 2: { exclu: true } } };
+  assert.strictEqual(b.lignes[1].apprenti.statut, 'existant'); // même nom et même classe
+  // classe différente et pas de date de naissance : on ne devine pas
+  const autre = lignes.map((x, i) => (i === 1 ? { ...x, champs: { ...x.champs, formation: 'NDRC', annee_formation: '2' } } : x));
+  assert.strictEqual(db.appeler('import:analyser', { ...arg, lignes: autre }).lignes[1].apprenti.statut, 'a_confirmer');
+  assert.throws(() => db.appeler('import:appliquer', { arg: { ...arg, lignes: autre }, utilisateur: 't' }), /incertaine/);
+  const dec = { lignes: { 2: { exclu: true } } };
   const r2 = db.appeler('import:appliquer', { arg: { ...arg, decisions: dec }, utilisateur: 't' });
   assert.strictEqual(r2.apprentis_crees, 0);
   assert.strictEqual(r2.entreprises_creees, 0);
@@ -112,5 +114,48 @@ test('import : existant complété sans écrasement, changement de contrat et de
   assert.strictEqual(f.telephone, '06 00 00 00 00');
   assert.strictEqual(db.appeler('jeunes:contrats', j).length, 1);
   assert.strictEqual(db.appeler('jeunes:classes', j).length, 1);
+  db.fermer();
+});
+
+test('fichier « terrain » : feuille = classe, blocs entreprise / maître, période, contacts, listes non inscrits, doublons', () => {
+  const f = lireTableau(Buffer.from(
+    'Nom Prénom;Lieu Entreprise Apprentissage;Coordonnées Maître d\'apprentissage;Date de contrat;\n'
+    + '"LÉPOUZÉ Romane";"LECLUSE AUTO\r\n263 rue Emile Levassor\r\n27000 Evreux\r\n( 02.43.78.50.64\r\n* contact@leclu.fr";"DUMONT Marine\r\n( 02.78.94.74.20\r\n* marine@leclu.fr\r\nDiplôme : BTS CG";"01/09/2026 au 31/08/2028";35H\n'
+    + '"Davina MARTHON";"SUD EXPRESS\r\n47 Rue Chartraine\r\n27000 Evreux";"GUIONET Nathalie\r\n( 06 71 81 36 19";"01/09/2026 au 07/07/2028";35H\n'
+    + ';;"Audrey BLONDEL\r\nGérante\r\n* a.blondel@sud.com";;\n'
+    + 'Etape 2 - en cours d\'inscription;;;;\n'
+    + 'DURAND Paul;;;;\n', 'utf8'), '.csv').feuilles[0];
+  const lignes = normaliserFeuilles([{ ...f, nom: 'GPME1', champs: reconnaitreColonnes(f.entetes, f.lignes) }]);
+  assert.strictEqual(lignes.length, 3);
+  const l = lignes[0].champs;
+  assert.strictEqual(l.nom, 'Lépouzé'); assert.strictEqual(l.classe, 'GPME1');
+  assert.strictEqual(l.ent_nom, 'LECLUSE AUTO'); assert.strictEqual(l.ent_code_postal, '27000'); assert.strictEqual(l.ent_ville, 'Evreux');
+  assert.strictEqual(l.ent_adresse, '263 rue Emile Levassor'); assert.strictEqual(l.ent_telephone, '02 43 78 50 64');
+  assert.strictEqual(l.maitre_nom, 'DUMONT Marine'); assert.strictEqual(l.maitre_telephone, '02 78 94 74 20');
+  assert.strictEqual(l.contrat_debut, '2026-09-01'); assert.strictEqual(l.contrat_fin, '2028-08-31');
+  assert.match(l.contrat_info, /35H/);
+  assert.strictEqual(lignes[1].champs.nom, 'Marthon'); assert.strictEqual(lignes[1].champs.prenom, 'Davina'); // ordre inversé
+  assert.deepStrictEqual(lignes[1].champs.contacts_extra.map((c) => c.nom), ['Audrey BLONDEL']);
+  assert.ok(lignes[2].exclu_defaut); // sous la mention « Etape 2 »
+
+  const db = ouvrir(':memory:');
+  const arg = { annee_scolaire: '2026-2027', fichier: 't', lignes };
+  const a = db.appeler('import:analyser', arg);
+  assert.strictEqual(a.lignes[0].classe_code, 'GPME 1ère année');
+  assert.strictEqual(a.lignes[2].exclu, true);
+  const r = db.appeler('import:appliquer', { arg, utilisateur: 't' });
+  assert.strictEqual(r.apprentis_crees, 2);
+  const sud = db.appeler('entreprises:list').find((e) => e.nom === 'SUD EXPRESS');
+  assert.strictEqual(db.appeler('contacts:list', sud.id).length, 1);
+  // 2e import : tout est reconnu (même classe), le contact n'est pas dupliqué
+  const r2 = db.appeler('import:appliquer', { arg, utilisateur: 't' });
+  assert.strictEqual(r2.apprentis_crees, 0);
+  assert.strictEqual(db.appeler('contacts:list', sud.id).length, 1);
+  // une faute de frappe dans le nom n'est jamais rapprochée automatiquement
+  const faute = lignes.slice(0, 1).map((x) => ({ ...x, champs: { ...x.champs, nom: 'Lepouse' } }));
+  assert.strictEqual(db.appeler('import:analyser', { ...arg, lignes: faute }).lignes[0].apprenti.statut, 'a_confirmer');
+  // annulation du 1er import
+  db.appeler('import:annuler', db.appeler('import:historique')[1].id);
+  assert.strictEqual(db.appeler('contacts:list', sud.id).length, 0);
   db.fermer();
 });

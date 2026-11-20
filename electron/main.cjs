@@ -6,7 +6,7 @@ const { ouvrir, TAILLE_MAX_PIECE } = require('./db.cjs');
 const { creerSession } = require('./auth.cjs');
 const { verifierSauvegarde, remplacer } = require('./sauvegarde.cjs');
 const { lirePdf } = require('./calendrier-pdf.cjs');
-const { lireTableau, reconnaitreColonnes, normaliserLigne, CHAMPS } = require('./import-tableau.cjs');
+const { lireTableau, reconnaitreColonnes, normaliserFeuilles, CHAMPS } = require('./import-tableau.cjs');
 const { lireXlsx } = require('./calendrier-import.cjs');
 const { composer, repartir, preparerBrouillon, nomSur, convertirWordEnPdf } = require('./courriel.cjs');
 const { execFile } = require('node:child_process');
@@ -302,11 +302,11 @@ function brancherIpc() {
       if (ext === '.xls') throw new Error("Ce fichier est au format Excel ancien (.xls). Ouvrez-le dans Excel puis « Enregistrer sous » au format .xlsx (ou CSV), et importez ce nouveau fichier.");
       if (!['.xlsx', '.csv'].includes(ext)) throw new Error('Format non pris en charge : choisissez un fichier .xlsx ou .csv.');
       const t = lireTableau(fs.readFileSync(chemin), ext);
-      return { nom, ...t, champs: reconnaitreColonnes(t.entetes), liste_champs: CHAMPS };
+      return { nom, ignorees: t.ignorees, feuilles: t.feuilles.map((f) => ({ ...f, champs: reconnaitreColonnes(f.entetes, f.lignes) })), liste_champs: CHAMPS };
     }
     // Lignes normalisées à partir de la correspondance colonne → champ choisie par l'utilisateur.
     if (action === 'normaliserImport') {
-      return arg.lignes.map((l) => normaliserLigne(l, arg.champs));
+      return normaliserFeuilles(arg.feuilles);
     }
     if (action === 'validerImport') {
       const dossierSecu = path.join(app.getPath('userData'), 'avant-import');
