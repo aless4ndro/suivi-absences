@@ -6,6 +6,7 @@ const { ouvrir, TAILLE_MAX_PIECE } = require('./db.cjs');
 const { creerSession } = require('./auth.cjs');
 const { verifierSauvegarde, remplacer } = require('./sauvegarde.cjs');
 const { lirePdf } = require('./calendrier-pdf.cjs');
+const { lireTableau, reconnaitreColonnes, normaliserLigne, CHAMPS } = require('./import-tableau.cjs');
 const { lireXlsx } = require('./calendrier-import.cjs');
 const { composer, repartir, preparerBrouillon, nomSur, convertirWordEnPdf } = require('./courriel.cjs');
 const { execFile } = require('node:child_process');
@@ -284,6 +285,51 @@ function brancherIpc() {
       if (ext === '.pdf') return { nom, ...(await lirePdf(fs.readFileSync(chemin), arg.annee_scolaire)) };
       if (ext !== '.xlsx') throw new Error('Format non pris en charge : choisissez un fichier .xlsx.');
       return { nom, ...lireXlsx(fs.readFileSync(chemin), arg.annee_scolaire) };
+    }
+
+    // Import des apprentis / entreprises / contrats : lecture du fichier (CSV ou Excel), colonnes reconnues.
+    if (action === 'lireImport') {
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: 'Choisir le fichier à importer',
+        properties: ['openFile'],
+        filters: [{ name: 'Tableur (Excel ou CSV)', extensions: ['xlsx', 'xls', 'csv'] }],
+      });
+      if (canceled || !filePaths.length) return { annule: true };
+      const chemin = filePaths[0];
+      const nom = path.basename(chemin);
+      const ext = path.extname(nom).toLowerCase();
+      if (fs.statSync(chemin).size > 25 * 1024 * 1024) throw new Error('Fichier trop volumineux (25 Mo maximum).');
+      if (ext === '.xls') throw new Error("Ce fichier est au format Excel ancien (.xls). Ouvrez-le dans Excel puis « Enregistrer sous » au format .xlsx (ou CSV), et importez ce nouveau fichier.");
+      if (!['.xlsx', '.csv'].includes(ext)) throw new Error('Format non pris en charge : choisissez un fichier .xlsx ou .csv.');
+      const t = lireTableau(fs.readFileSync(chemin), ext);
+      return { nom, ...t, champs: reconnaitreColonnes(t.entetes), liste_champs: CHAMPS };
+    }
+    // Lignes normalisées à partir de la correspondance colonne → champ choisie par l'utilisateur.
+    if (action === 'normaliserImport') {
+      return arg.lignes.map((l) => normaliserLigne(l, arg.champs));
+    }
+    if (action === 'validerImport') {
+      const dossierSecu = path.join(app.getPath('userData'), 'avant-import');
+      fs.mkdirSync(dossierSecu, { recursive: true });
+      const sauvegarde = path.join(dossierSecu, `avant-import-${horodatage()}.db`);
+      db.sauvegarder(sauvegarde);
+      let utilisateur = null;
+      try { utilisateur = require('node:os').userInfo().username; } catch { /* sans importance */ }
+      return db.appeler('import:appliquer', { arg, utilisateur, sauvegarde });
+    }
+    if (action === 'rapportImport') {
+      const r = db.appeler('import:rapport', arg.id);
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        title: "Enregistrer le rapport d'anomalies",
+        defaultPath: path.join(app.getPath('documents'), `Rapport-import-${horodatage()}.csv`),
+        filters: [{ name: 'CSV (Excel)', extensions: ['csv'] }],
+      });
+      if (canceled || !filePath) return { annule: true };
+      const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const lignes = [['Ligne du fichier', 'Apprenti', 'Anomalies', 'Informations manquantes', 'Exclue'].map(q).join(';')];
+      for (const l of r.lignes) lignes.push([l.ligne, l.nom, l.anomalies.join(' ; '), l.manquants.join(', '), l.exclue ? 'oui' : 'non'].map(q).join(';'));
+      fs.writeFileSync(filePath, `\uFEFF${lignes.join('\r\n')}\r\n`, 'utf8');
+      return { chemin: filePath };
     }
 
     // Validation d'un import : sauvegarde complète de la base avant tout remplacement.

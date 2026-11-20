@@ -12,6 +12,7 @@ const { creerAlertes } = require('./alertes.cjs');
 const { creerTableauBord } = require('./tableau-bord.cjs');
 const { creerMails } = require('./mails.cjs');
 const { creerVersionsCalendrier } = require('./calendrier-versions.cjs');
+const { creerImportDonnees } = require('./import-donnees.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -599,6 +600,40 @@ const MIGRATIONS = [
     PRIMARY KEY (classe_id, annee_scolaire)
   );
   `,
+  // v22 : import des apprentis, entreprises et contrats (historique, journal des opérations pour l'annulation), coordonnées complémentaires.
+  `
+  ALTER TABLE entreprises ADD COLUMN code_postal TEXT;
+  ALTER TABLE entreprises ADD COLUMN ville TEXT;
+  ALTER TABLE jeune_entreprises ADD COLUMN maitre_fonction TEXT;
+  ALTER TABLE jeune_entreprises ADD COLUMN contrat_type TEXT;
+  CREATE TABLE imports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fichier TEXT NOT NULL,
+    date_import TEXT NOT NULL,
+    utilisateur TEXT,
+    annee_scolaire TEXT NOT NULL,
+    statut TEXT NOT NULL DEFAULT 'valide',
+    nb_lignes INTEGER NOT NULL DEFAULT 0,
+    nb_apprentis_crees INTEGER NOT NULL DEFAULT 0,
+    nb_apprentis_maj INTEGER NOT NULL DEFAULT 0,
+    nb_entreprises_creees INTEGER NOT NULL DEFAULT 0,
+    nb_entreprises_maj INTEGER NOT NULL DEFAULT 0,
+    nb_rapprochements INTEGER NOT NULL DEFAULT 0,
+    nb_anomalies INTEGER NOT NULL DEFAULT 0,
+    rapport TEXT,
+    sauvegarde TEXT,
+    annule_le TEXT,
+    annule_rapport TEXT
+  );
+  CREATE TABLE import_operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_id INTEGER NOT NULL REFERENCES imports(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,
+    cible_id INTEGER,
+    avant TEXT
+  );
+  CREATE INDEX import_operations_import ON import_operations (import_id);
+  `,
 ];
 
 // Horaires proposés par défaut pour une journée (modifiables dans Paramètres).
@@ -881,12 +916,12 @@ function ouvrir(chemin) {
         const autre = db.prepare('SELECT nom FROM entreprises WHERE siret = ? AND id <> ?').get(siret, Number(e.id) || 0);
         if (autre) throw new Error(`Ce SIRET est déjà celui de « ${autre.nom} » : une seule fiche par entreprise.`);
       }
-      const p = [nom, vide(e.adresse), vide(e.telephone), vide(e.email), vide(e.nom_commercial), siret];
+      const p = [nom, vide(e.adresse), vide(e.telephone), vide(e.email), vide(e.nom_commercial), siret, vide(e.code_postal), vide(e.ville)];
       if (e.id) {
-        db.prepare('UPDATE entreprises SET nom=?, adresse=?, telephone=?, email=?, nom_commercial=?, siret=? WHERE id=?').run(...p, e.id);
+        db.prepare('UPDATE entreprises SET nom=?, adresse=?, telephone=?, email=?, nom_commercial=?, siret=?, code_postal=?, ville=? WHERE id=?').run(...p, e.id);
         return e.id;
       }
-      return Number(db.prepare('INSERT INTO entreprises (nom, adresse, telephone, email, nom_commercial, siret) VALUES (?,?,?,?,?,?)').run(...p).lastInsertRowid);
+      return Number(db.prepare('INSERT INTO entreprises (nom, adresse, telephone, email, nom_commercial, siret, code_postal, ville) VALUES (?,?,?,?,?,?,?,?)').run(...p).lastInsertRowid);
     },
 
     'contacts:list': (entrepriseId) =>
@@ -1401,6 +1436,7 @@ function ouvrir(chemin) {
   const { recalculer: recalculerAlertes, ...alertesActions } = alertesModule;
   Object.assign(actions, alertesActions);
   Object.assign(actions, creerVersionsCalendrier(db, { dateValide, vide, aujourdhui }));
+  Object.assign(actions, creerImportDonnees(db, { vide, dateValide, aujourdhui, synchroniser, contratDe, classeDe }));
   Object.assign(actions, creerMails(db, { vide, dateValide, aujourdhui, classeDe, etablissement: () => actions['etablissement:get']() }));
   Object.assign(actions, creerTableauBord(db, { aujourdhui, recalculerAlertes }));
   Object.assign(actions, creerCommissions(db, { tailleMax: TAILLE_MAX_PIECE, vide, dateValide, classeDe, destinatairesDe, aujourdhui, etablissement: () => actions['etablissement:get']() }));

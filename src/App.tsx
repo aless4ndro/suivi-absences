@@ -14,6 +14,7 @@ import Commissions from './pages/Commissions';
 import Alertes from './pages/Alertes';
 import TableauBord from './pages/TableauBord';
 import MailsTypes from './pages/MailsTypes';
+import ImportDonnees from './pages/ImportDonnees';
 import Recapitulatifs from './pages/Recapitulatifs';
 import Professeurs from './pages/Professeurs';
 
@@ -22,6 +23,7 @@ const PAGES = [
   { id: 'absences', titre: 'Absences et retards' },
   { id: 'jeunes', titre: 'Apprentis' },
   { id: 'entreprises', titre: 'Entreprises' },
+  { id: 'import', titre: 'Import de données' },
   { id: 'professeurs', titre: 'Professeurs principaux' },
   { id: 'sanctions', titre: 'Sanctions' },
   { id: 'discipline', titre: 'Tableau de bord disciplinaire' },
@@ -80,6 +82,7 @@ export default function App() {
         {page === 'absences' && <Absences key={JSON.stringify(filtreAbsences ?? {})} filtreInitial={filtreAbsences} />}
         {page === 'jeunes' && <Jeunes cible={cible?.type === 'apprenti' ? cible.id : null} apresCible={() => setCible(null)} allerA={allerA} ouvrirFiche={ouvrirFiche} />}
         {page === 'entreprises' && <Entreprises cible={cible?.type === 'entreprise' ? cible.id : null} apresCible={() => setCible(null)} ouvrirFiche={ouvrirFiche} />}
+        {page === 'import' && <ImportDonnees />}
         {page === 'professeurs' && <Professeurs />}
         {page === 'motifs' && <Motifs />}
         {page === 'calendrier' && <Calendrier />}

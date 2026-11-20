@@ -3,7 +3,7 @@ import { appeler, STATUTS_CONTRAT, type ApprentiEntreprise, type Contact, type E
 import { formaterDate } from '../format';
 import { correspond } from '../recherche';
 
-const VIDE: Entreprise = { nom: '', adresse: '', telephone: '', email: '', nom_commercial: '', siret: '' };
+const VIDE: Entreprise = { nom: '', adresse: '', telephone: '', email: '', nom_commercial: '', siret: '', code_postal: '', ville: '' };
 
 const FILTRES: { id: StatutContrat | 'tous'; texte: string }[] = [
   { id: 'tous', texte: 'Tous' }, { id: 'en_cours', texte: 'En cours' }, { id: 'a_venir', texte: 'À venir' },
@@ -101,6 +101,8 @@ export default function Entreprises({ cible, apresCible, ouvrirFiche: ouvrirAppr
             <label>Nom commercial<input {...champ('nom_commercial')} /></label>
             <label>SIRET (14 chiffres)<input {...champ('siret')} inputMode="numeric" placeholder="552 081 317 00019" /></label>
             <label>Adresse<input {...champ('adresse')} /></label>
+            <label>Code postal<input {...champ('code_postal')} /></label>
+            <label>Ville<input {...champ('ville')} /></label>
             <label>Téléphone<input type="tel" {...champ('telephone')} /></label>
             <label>E-mail<input type="email" {...champ('email')} /></label>
           </div>
@@ -199,7 +201,7 @@ export default function Entreprises({ cible, apresCible, ouvrirFiche: ouvrirAppr
           <tbody>
             {visibles.map((ent) => (
               <tr key={ent.id} className="clic" onClick={() => ouvrirFiche(ent)}>
-                <td><strong>{ent.nom}</strong>{ent.nom_commercial && <span className="discret"> · {ent.nom_commercial}</span>}{ent.adresse && <div className="discret">{ent.adresse}</div>}{ent.siret && <div className="discret">SIRET {ent.siret}</div>}</td>
+                <td><strong>{ent.nom}</strong>{ent.nom_commercial && <span className="discret"> · {ent.nom_commercial}</span>}{(ent.adresse || ent.ville) && <div className="discret">{[ent.adresse, [ent.code_postal, ent.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')}</div>}{ent.siret && <div className="discret">SIRET {ent.siret}</div>}</td>
                 <td>{ent.telephone}</td>
                 <td>{ent.email}</td>
                 <td>{ent.nb_jeunes}</td>
