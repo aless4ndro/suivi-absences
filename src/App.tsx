@@ -17,27 +17,8 @@ import MailsTypes from './pages/MailsTypes';
 import ImportDonnees from './pages/ImportDonnees';
 import Recapitulatifs from './pages/Recapitulatifs';
 import Professeurs from './pages/Professeurs';
-
-const PAGES = [
-  { id: 'accueil', titre: 'Accueil' },
-  { id: 'absences', titre: 'Absences et retards' },
-  { id: 'jeunes', titre: 'Apprentis' },
-  { id: 'entreprises', titre: 'Entreprises' },
-  { id: 'import', titre: 'Import de données' },
-  { id: 'professeurs', titre: 'Professeurs principaux' },
-  { id: 'sanctions', titre: 'Sanctions' },
-  { id: 'discipline', titre: 'Tableau de bord disciplinaire' },
-  { id: 'alertes', titre: 'Alertes' },
-  { id: 'commissions', titre: 'Commissions' },
-  { id: 'motifs', titre: 'Motifs' },
-  { id: 'mails', titre: 'Mails types' },
-  { id: 'rattrapages', titre: 'Rattrapages' },
-  { id: 'calendrier', titre: 'Calendrier' },
-  { id: 'envois', titre: 'Récapitulatifs' },
-  { id: 'parametres', titre: 'Paramètres' },
-] as const;
-
-type PageId = (typeof PAGES)[number]['id'];
+import ErreurPage from './ErreurPage';
+import Sidebar, { titreDe, type PageId } from './Sidebar';
 
 export default function App() {
   const [page, setPage] = useState<PageId>('accueil');
@@ -59,24 +40,18 @@ export default function App() {
 
   if (!etat) return null;
   if (!etat.deverrouille) {
-    return <Connexion mdpDefini={etat.mdpDefini} onOk={() => { setPage('accueil'); rafraichir(); }} />;
+    return <><div className="zone-fenetre" /><Connexion mdpDefini={etat.mdpDefini} onOk={() => { setPage('accueil'); rafraichir(); }} /></>;
   }
-
-  const courante = PAGES.find((p) => p.id === page)!;
 
   return (
     <div className="appli">
-      <nav className="menu">
-        <div className="marque"><img src="./logo.png" alt="" />Suivi Absences</div>
-        {PAGES.map((p) => (
-          <button key={p.id} className={p.id === page ? 'actif' : ''} onClick={() => allerA(p.id)}>
-            {p.titre}
-            {'aVenir' in p && <span className="badge">bientôt</span>}
-          </button>
-        ))}
-        <button className="bas" onClick={() => auth('verrouiller').then(rafraichir)}>Verrouiller</button>
-      </nav>
-      <main>
+      <Sidebar page={page} onNaviguer={(id) => allerA(id)} onVerrouiller={() => auth('verrouiller').then(rafraichir)} />
+      <div className="colonne">
+        <header className="barre-haut">
+          <span className="barre-titre">{titreDe(page)}</span>
+        </header>
+        <main>
+        <ErreurPage key={page}>
         {page === 'accueil' && <Accueil allerA={allerA} ouvrirFiche={ouvrirFiche} />
         }
         {page === 'absences' && <Absences key={JSON.stringify(filtreAbsences ?? {})} filtreInitial={filtreAbsences} />}
@@ -94,13 +69,9 @@ export default function App() {
         {page === 'commissions' && <Commissions />}
         {page === 'envois' && <Recapitulatifs />}
         {page === 'parametres' && <Parametres apresRestauration={rafraichir} />}
-        {'aVenir' in courante && (
-          <>
-            <h1>{courante.titre}</h1>
-            <p className="discret">Cette partie arrive dans une prochaine version.</p>
-          </>
-        )}
-      </main>
+        </ErreurPage>
+        </main>
+      </div>
     </div>
   );
 }

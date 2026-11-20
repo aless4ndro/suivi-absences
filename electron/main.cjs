@@ -38,6 +38,10 @@ function creerFenetre() {
     title: 'Suivi Absences',
     icon: path.join(__dirname, 'icon.png'),
     autoHideMenuBar: true,
+    // Fenêtre sans barre de titre native : seuls les boutons Windows (réduire / agrandir / fermer) restent, sur fond transparent.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: 'rgba(0,0,0,0)', symbolColor: '#0f172a', height: 52 },
+    backgroundColor: '#f5f7fa',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
