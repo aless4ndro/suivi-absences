@@ -10,7 +10,7 @@
     "build": "vite build",
     "start": "npm run build && electron .",
     "test": "node --test \"electron/*.test.cjs\"",
-    "dist": "npm run build && electron-builder --win portable --publish never"
+    "dist": "npm run build && electron-builder --win nsis --publish never"
   },
   "dependencies": {
     "lucide-react": "^1.77.0",
