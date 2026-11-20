@@ -80,7 +80,7 @@ export default function Sidebar({ page, onNaviguer, onVerrouiller, nbAlertes }: 
                   <button key={e.id} className={`menu-entree${e.id === page ? ' actif' : ''}`} onClick={() => onNaviguer(e.id)} title={e.titre} aria-current={e.id === page ? 'page' : undefined}>
                     <Ico size={18} strokeWidth={1.5} />
                     {!reduit && <span className="menu-libelle">{e.titre}</span>}
-                    {e.id === 'alertes' && !!nbAlertes && <span className={reduit ? 'pastille' : 'badge-n'}>{reduit ? '' : nbAlertes}</span>}
+                    {e.id === 'alertes' && !!nbAlertes && <span className={reduit ? 'menu-pastille' : 'badge-n'}>{reduit ? '' : nbAlertes}</span>}
                   </button>
                 );
               })}

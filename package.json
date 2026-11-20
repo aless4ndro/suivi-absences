@@ -43,18 +43,25 @@
       "icon": "build/icon.ico",
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
         }
       ]
     },
-    "portable": {
-      "artifactName": "SuiviAbsences.exe"
-    },
     "asarUnpack": [
       "node_modules/pdfjs-dist/**"
-    ]
+    ],
+    "nsis": {
+      "artifactName": "SuiviAbsences-Setup.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Suivi Absences",
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

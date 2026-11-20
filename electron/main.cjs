@@ -36,6 +36,7 @@ function creerFenetre() {
     minWidth: 960,
     minHeight: 600,
     title: 'Suivi Absences',
+    show: false, // affichée seulement quand l'interface est prête (pas d'écran blanc)
     icon: path.join(__dirname, 'icon.png'),
     autoHideMenuBar: true,
     // Fenêtre sans barre de titre native : seuls les boutons Windows (réduire / agrandir / fermer) restent, sur fond transparent.
@@ -54,6 +55,7 @@ function creerFenetre() {
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.once('ready-to-show', () => win.show());
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 }
 

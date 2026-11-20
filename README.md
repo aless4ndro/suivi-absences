@@ -9,7 +9,7 @@ de sept classes en alternance : BTS GPME, MCO et NDRC (1ère et 2ème année) et
 
 ## Récupérer le .exe
 
-Chaque envoi sur `main` compile `SuiviAbsences.exe` : onglet **Actions** du dépôt,
+Chaque envoi sur `main` compile l'installateur `SuiviAbsences-Setup.exe` : onglet **Actions** du dépôt,
 dernière exécution, section **Artifacts**.
 
 ## Développement
@@ -18,7 +18,7 @@ dernière exécution, section **Artifacts**.
 npm install
 npm start      # compile l'interface et lance l'appli
 npm test       # tests de la base de données
-npm run dist   # produit release/SuiviAbsences.exe (sous Windows)
+npm run dist   # produit release/SuiviAbsences-Setup.exe (sous Windows)
 ```
 
 ## Avancement
