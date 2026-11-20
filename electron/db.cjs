@@ -13,6 +13,7 @@ const { creerTableauBord } = require('./tableau-bord.cjs');
 const { creerMails } = require('./mails.cjs');
 const { creerVersionsCalendrier } = require('./calendrier-versions.cjs');
 const { creerImportDonnees } = require('./import-donnees.cjs');
+const { creerRecapitulatif } = require('./recapitulatif.cjs');
 
 // Une ligne par jour ouvré, déduite des plages du calendrier fourni par le centre de formation.
 function sqlCalendriers() {
@@ -633,6 +634,34 @@ const MIGRATIONS = [
     avant TEXT
   );
   CREATE INDEX import_operations_import ON import_operations (import_id);
+  `,
+  // v23 : récapitulatifs — historique des extractions et des transmissions (aucune donnée métier dupliquée).
+  `
+  CREATE TABLE recap_extractions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date_extraction TEXT NOT NULL,
+    utilisateur TEXT,
+    debut TEXT NOT NULL,
+    fin TEXT NOT NULL,
+    domaines TEXT NOT NULL,
+    criteres TEXT NOT NULL,
+    empreinte TEXT NOT NULL,
+    nb_apprentis INTEGER NOT NULL DEFAULT 0,
+    usage TEXT
+  );
+  CREATE TABLE recap_transmissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    extraction_id INTEGER REFERENCES recap_extractions(id) ON DELETE SET NULL,
+    date_envoi TEXT NOT NULL,
+    utilisateur TEXT,
+    jeune_id INTEGER REFERENCES jeunes(id) ON DELETE SET NULL,
+    destinataires TEXT NOT NULL,
+    type_document TEXT NOT NULL,
+    domaines TEXT NOT NULL,
+    avec_sanctions INTEGER NOT NULL DEFAULT 0,
+    pieces TEXT,
+    objet TEXT
+  );
   `,
 ];
 
@@ -1438,6 +1467,7 @@ function ouvrir(chemin) {
   Object.assign(actions, creerVersionsCalendrier(db, { dateValide, vide, aujourdhui }));
   Object.assign(actions, creerImportDonnees(db, { vide, dateValide, aujourdhui, synchroniser, contratDe, classeDe }));
   Object.assign(actions, creerMails(db, { vide, dateValide, aujourdhui, classeDe, etablissement: () => actions['etablissement:get']() }));
+  Object.assign(actions, creerRecapitulatif(db, { dateValide, aujourdhui, classeDe, destinatairesDe, etablissement: () => actions['etablissement:get']() }).actions);
   Object.assign(actions, creerTableauBord(db, { aujourdhui, recalculerAlertes }));
   Object.assign(actions, creerCommissions(db, { tailleMax: TAILLE_MAX_PIECE, vide, dateValide, classeDe, destinatairesDe, aujourdhui, etablissement: () => actions['etablissement:get']() }));
 

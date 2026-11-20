@@ -33,6 +33,7 @@ npm run dist   # produit release/SuiviAbsences.exe (sous Windows)
 - [x] Rattrapages (créneaux, total ou partiel, convocation, émargement)
 - [x] Calendriers d'alternance 2026-2027 et vacances scolaires zone B (en gris)
 - [x] Récapitulatifs mensuels envoyés aux entreprises via Outlook
+- [x] Récapitulatif absences / retards / sanctions : filtres combinables (période, classes comparables, apprenti), tableaux de bord collectif et individuel (lot de PDF par classe), graphiques, export Excel et PDF, e-mail avec contrôle de confidentialité (sanctions jamais envoyées à une entreprise sans autorisation expresse), historique des extractions et des transmissions, résultats signalés « plus à jour » si les données sources changent
 - [x] Professeurs principaux (affectations datées, remplacement, alertes)
 - [x] Historique de classes, bascule de rentrée, sorties de formation
 - [x] Historique entreprise / maître d'apprentissage, contrats, photo

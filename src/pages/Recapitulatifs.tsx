@@ -1,186 +1,364 @@
-import { useEffect, useState } from 'react';
-import { appeler, documents, type ApprentiBilan, type Bilan, type Classe, type Destinataire, type ResultatCourriel } from '../api';
-import { aujourdhui, formaterTaille } from '../format';
-import { corpsRecap, sujetRecap, type DonneesRecap } from '../recap';
-import ChoixDestinataires, { adressesInvalides, envoiParDefaut, ppInclus, repartition, toutesAdresses, type Envoi } from '../ChoixDestinataires';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { appeler, documents, type ApprentiRecap, type Classe, type ControleEnvoi, type Destinataire, type ExtractionRecap, type ResultatRecap, type ResultatCourriel, type TransmissionRecap } from '../api';
+import { aujourdhui, formaterDate } from '../format';
+import { anneeScolaireCourante } from '../FicheAssiduite';
+import ChoixDestinataires, { adressesInvalides, envoiParDefaut, repartition, type Envoi } from '../ChoixDestinataires';
+import RecapMensuel from './RecapMensuel';
+import { feuillesExcel, graphiques, hm, htmlCollectif, htmlIndividuel, sansDomaine } from '../recapTableau';
 
-const p2 = (n: number) => String(n).padStart(2, '0');
-const dernierJour = (ym: string) => {
-  const [a, m] = ym.split('-').map(Number);
-  return `${ym}-${p2(new Date(Date.UTC(a, m, 0)).getUTCDate())}`;
-};
-const moisPrecedent = () => {
-  const [a, m] = aujourdhui().split('-').map(Number);
-  return m === 1 ? `${a - 1}-12` : `${a}-${p2(m - 1)}`;
-};
-const hm = (min: number) => `${Math.floor(min / 60)} h ${p2(min % 60)}`;
-
-type Prepa = {
-  a: ApprentiBilan; donnees: DonneesRecap; destinataires: Destinataire[]; envoi: Envoi;
-  objet: string; corps: string; piecesSeance: number[]; piecesEvenement: number[];
-};
+type Onglet = 'tableau' | 'mensuel' | 'historique';
+type Dom = { absences: boolean; retards: boolean; sanctions: boolean };
+const DOM_LIBELLE: Record<keyof Dom, string> = { absences: 'Absences', retards: 'Retards', sanctions: 'Sanctions' };
 
 export default function Recapitulatifs() {
+  const [onglet, setOnglet] = useState<Onglet>('tableau');
+  return (
+    <>
+      <div className="entete"><h1>Récapitulatif – suivi des apprentis</h1></div>
+      <div className="actions">
+        <button className={onglet === 'tableau' ? 'principal' : ''} onClick={() => setOnglet('tableau')}>Tableau de bord</button>
+        <button className={onglet === 'mensuel' ? 'principal' : ''} onClick={() => setOnglet('mensuel')}>Mails mensuels aux employeurs</button>
+        <button className={onglet === 'historique' ? 'principal' : ''} onClick={() => setOnglet('historique')}>Historique</button>
+      </div>
+      {onglet === 'tableau' && <TableauRecap />}
+      {onglet === 'mensuel' && <RecapMensuel />}
+      {onglet === 'historique' && <HistoriqueRecap />}
+    </>
+  );
+}
+
+function TableauRecap() {
+  const an = anneeScolaireCourante();
   const [classes, setClasses] = useState<Classe[]>([]);
-  const [mois, setMois] = useState(moisPrecedent());
-  const [classeId, setClasseId] = useState('');
+  const [debut, setDebut] = useState(an.debut);
+  const [fin, setFin] = useState(an.fin);
+  const [classeIds, setClasseIds] = useState<number[]>([]);
   const [recherche, setRecherche] = useState('');
-  const [bilan, setBilan] = useState<Bilan | null>(null);
-  const [coches, setCoches] = useState<number[]>([]);
-  const [prepa, setPrepa] = useState<Prepa | null>(null);
-  const [faits, setFaits] = useState<Record<number, string>>({});
+  const [dom, setDom] = useState<Dom>({ absences: true, retards: true, sanctions: false });
+  const [r, setR] = useState<ResultatRecap | null>(null);
+  const [extraction, setExtraction] = useState<number | null>(null);
+  const [critereModifie, setCritereModifie] = useState(false);
+  const [donneesModifiees, setDonneesModifiees] = useState(false);
+  const [vue, setVue] = useState<number | null>(null); // apprenti affiché individuellement
   const [erreur, setErreur] = useState('');
   const [info, setInfo] = useState('');
-  const debut = `${mois}-01`;
-  const fin = dernierJour(mois);
+  const [envoi, setEnvoi] = useState(false);
+  const critRef = useRef('');
 
+  const criteres = () => ({ debut, fin, domaines: dom, classe_ids: classeIds, recherche });
   useEffect(() => { appeler<Classe[]>('classes:list').then(setClasses); }, []);
+  useEffect(() => { if (r) setCritereModifie(JSON.stringify(criteres()) !== critRef.current); }, [debut, fin, dom, classeIds, recherche]);
+
+  // Les données sources peuvent changer (absence saisie ailleurs) : on re-vérifie régulièrement l'empreinte.
   useEffect(() => {
-    appeler<Bilan>('rattrapages:bilan', { debut, fin, classe_id: classeId ? Number(classeId) : undefined, recherche })
-      .then((b) => { setBilan(b); setCoches([]); setFaits({}); })
-      .catch((e) => setErreur(e.message));
-  }, [mois, classeId, recherche]);
+    if (!r) return;
+    const t = setInterval(() => {
+      appeler<ResultatRecap>('recap:calculer', r.criteres).then((n) => setDonneesModifiees(n.empreinte !== r.empreinte)).catch(() => { /* ignoré */ });
+    }, 15000);
+    return () => clearInterval(t);
+  }, [r]);
 
-  const concernes = (bilan?.apprentis ?? []).filter((a) => a.dues > 0 || a.validees > 0);
-
-  async function charger(a: ApprentiBilan): Promise<Prepa> {
-    const [donnees, destinataires] = await Promise.all([
-      appeler<DonneesRecap>('recap:donnees', { jeune_id: a.id, debut, fin }),
-      appeler<Destinataire[]>('destinataires:list', { jeune_id: a.id, date: fin }),
-    ]);
-    const piecesSeance = donnees.pieces.map((p) => p.id);
-    return {
-      a, donnees, destinataires, envoi: envoiParDefaut(destinataires),
-      objet: sujetRecap(a.nom, a.prenom, mois), corps: corpsRecap(donnees, mois, piecesSeance.length > 0),
-      piecesSeance, piecesEvenement: [],
-    };
-  }
-
-  async function ouvrirPrepa(a: ApprentiBilan) {
-    try { setPrepa(await charger(a)); setErreur(''); setInfo(''); } catch (e) { setErreur((e as Error).message); }
-  }
-
-  async function brouillon(p: Prepa): Promise<ResultatCourriel> {
-    const invalides = adressesInvalides(p.envoi);
-    if (invalides.length) throw new Error(`Adresse(s) invalide(s) : ${invalides.join(', ')}`);
-    const r = await documents<ResultatCourriel>('courriel', {
-      ...repartition(p.envoi), objet: p.objet, corps: p.corps,
-      piece_seance_ids: p.piecesSeance, piece_evenement_ids: p.piecesEvenement,
-    });
-    await appeler('recap:envoye', {
-      jeune_id: p.a.id, debut, fin, destinataires: toutesAdresses(p.envoi),
-      pieces: [...p.donnees.pieces.filter((x) => p.piecesSeance.includes(x.id)).map((x) => x.nom_fichier),
-        ...p.donnees.pieces_evenements.filter((x) => p.piecesEvenement.includes(x.id)).map((x) => x.nom_fichier)],
-    });
-    return r;
-  }
-
-  async function envoyerUn() {
-    if (!prepa) return;
+  async function generer() {
+    setErreur(''); setInfo('');
     try {
-      const r = await brouillon(prepa);
-      setFaits((f) => ({ ...f, [prepa.a.id]: r.methode === 'outlook' ? 'Brouillon Outlook ouvert' : 'Message ouvert (pièces à glisser)' }));
-      setInfo(r.methode === 'outlook'
-        ? 'Brouillon ouvert dans Outlook. Relisez-le puis envoyez-le vous-même.'
-        : `Outlook n'a pas pu être piloté (${r.raison}). Un message a été ouvert ; glissez-y les pièces du dossier qui vient de s'ouvrir.`);
-      setErreur(''); setPrepa(null);
+      const res = await appeler<ResultatRecap>('recap:calculer', criteres());
+      setR(res); setVue(null); setCritereModifie(false); setDonneesModifiees(false); critRef.current = JSON.stringify(criteres());
+      setExtraction(await appeler<number>('recap:extraction:enregistrer', { resultat: res, usage: 'tableau' }));
     } catch (e) { setErreur((e as Error).message); }
   }
 
-  async function envoyerPlusieurs() {
-    const liste = concernes.filter((a) => coches.includes(a.id));
-    const manquants: string[] = [];
-    let ok = 0;
-    for (const a of liste) {
-      try {
-        const p = await charger(a);
-        if (repartition(p.envoi).a.length === 0) { manquants.push(`${a.nom} ${a.prenom} (aucune adresse e-mail)`); continue; }
-        const r = await brouillon(p);
-        setFaits((f) => ({ ...f, [a.id]: r.methode === 'outlook' ? 'Brouillon Outlook ouvert' : 'Message ouvert (pièces à glisser)' }));
-        ok++;
-      } catch (e) { manquants.push(`${a.nom} ${a.prenom} : ${(e as Error).message}`); }
-    }
-    setInfo(`${ok} brouillon(s) ouvert(s) dans Outlook (aux adresses par défaut, avec les feuilles d'émargement signées). Relisez et envoyez chacun vous-même.`);
-    setErreur(manquants.length ? `Non préparés : ${manquants.join(' ; ')}` : '');
+  const nomsClasses = classes.filter((c) => classeIds.includes(c.id)).map((c) => c.code);
+  const periode = r ? `${r.criteres.debut}_${r.criteres.fin}` : '';
+  const obsolete = critereModifie || donneesModifiees;
+  const apVue = r?.apprentis.find((a) => a.id === vue) ?? null;
+
+  async function excel() {
+    if (!r) return;
+    try {
+      const x = await documents<{ annule?: boolean; chemin?: string }>('xlsx', { feuilles: feuillesExcel(r, nomsClasses), nom: `Recapitulatif_${periode}` });
+      if (!x.annule) { setInfo(`Excel enregistré : ${x.chemin}`); await appeler('recap:extraction:enregistrer', { resultat: r, usage: 'excel' }); }
+    } catch (e) { setErreur((e as Error).message); }
+  }
+  async function pdf() {
+    if (!r) return;
+    try {
+      const html = apVue ? htmlIndividuel(r, apVue) : htmlCollectif(r);
+      const nom = apVue ? `Tableau_de_bord_${apVue.nom}_${apVue.prenom}_${periode}` : `Recapitulatif_${periode}`;
+      const x = await documents<{ annule?: boolean; chemin?: string }>('pdf', { html, nom });
+      if (!x.annule) { setInfo(`PDF enregistré : ${x.chemin}`); await appeler('recap:extraction:enregistrer', { resultat: r, usage: 'pdf' }); }
+    } catch (e) { setErreur((e as Error).message); }
+  }
+  async function lot() {
+    if (!r) return;
+    try {
+      const docs = r.apprentis.map((a) => ({ nom: `Tableau_de_bord_${a.classe_code}_${a.nom}_${a.prenom}_${periode}`, html: htmlIndividuel(r, a) }));
+      const x = await documents<{ annule?: boolean; dossier?: string; nb?: number }>('pdfLot', { documents: docs });
+      if (!x.annule) { setInfo(`${x.nb} tableau(x) de bord individuel(s) enregistré(s) dans ${x.dossier}`); await appeler('recap:extraction:enregistrer', { resultat: r, usage: 'lot_individuels' }); }
+    } catch (e) { setErreur((e as Error).message); }
   }
 
-  const maj = (patch: Partial<Prepa>) => prepa && setPrepa({ ...prepa, ...patch });
+  const g = useMemo(() => (r ? graphiques(vue && apVue ? soloRes(r, apVue) : r) : []), [r, vue]);
 
   return (
     <>
-      <div className="entete"><h1>Récapitulatifs mensuels aux employeurs</h1></div>
-      <p className="discret">Un bilan par apprenti : absences et retards irrecevables du mois, rattrapages validés et solde. Les mails restent des <strong>brouillons Outlook</strong> : vous les relisez puis les envoyez vous-même.</p>
-
+      <p className="discret">Lecture seule : les chiffres viennent des modules Absences, Retards et Sanctions. Rien n'est ressaisi ni modifié ici.</p>
       <section className="fiche">
+        <h3>Critères</h3>
         <div className="grille">
-          <label>Mois<input type="month" value={mois} onChange={(e) => e.target.value && setMois(e.target.value)} /></label>
-          <label>Groupe classe
-            <select value={classeId} onChange={(e) => setClasseId(e.target.value)}>
-              <option value="">Toutes les classes</option>
-              {classes.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
-            </select>
-          </label>
-          <label>Apprenti<input value={recherche} placeholder="Rechercher…" onChange={(e) => setRecherche(e.target.value)} /></label>
+          <label>Du<input type="date" value={debut} onChange={(e) => setDebut(e.target.value)} /></label>
+          <label>Au<input type="date" value={fin} onChange={(e) => setFin(e.target.value)} /></label>
+          <label>Apprenti<input value={recherche} placeholder="Nom ou prénom…" onChange={(e) => setRecherche(e.target.value)} /></label>
+          <label>Année scolaire<select value={`${debut.slice(0, 4)}`} onChange={(e) => { const y = Number(e.target.value); setDebut(`${y}-09-01`); setFin(`${y + 1}-08-31`); }}>
+            {[an.debut, `${Number(an.debut.slice(0, 4)) - 1}-09-01`].map((d) => <option key={d} value={d.slice(0, 4)}>{d.slice(0, 4)}-{Number(d.slice(0, 4)) + 1}</option>)}
+          </select></label>
+        </div>
+        <p><strong>Formation / classe</strong> (plusieurs possibles pour les comparer)</p>
+        <div className="actions">
+          {classes.map((c) => (
+            <label key={c.id} className="case"><input type="checkbox" checked={classeIds.includes(c.id)} onChange={(e) => setClasseIds(e.target.checked ? [...classeIds, c.id] : classeIds.filter((x) => x !== c.id))} />{c.code}</label>
+          ))}
+        </div>
+        <p><strong>Domaines</strong></p>
+        <div className="actions">
+          {(Object.keys(DOM_LIBELLE) as (keyof Dom)[]).map((k) => (
+            <label key={k} className="case"><input type="checkbox" checked={dom[k]} onChange={(e) => setDom({ ...dom, [k]: e.target.checked })} />{DOM_LIBELLE[k]}</label>
+          ))}
+        </div>
+        {dom.sanctions && <p className="alerte-texte">⚠ Les sanctions sont des données disciplinaires : elles ne figurent jamais dans un document pour une entreprise, sauf autorisation expresse au moment de l'envoi.</p>}
+        <div className="actions">
+          <button className="principal" onClick={generer}>Générer le tableau de bord</button>
+          <button disabled={!r} onClick={excel}>Exporter Excel</button>
+          <button disabled={!r} onClick={pdf}>Exporter PDF{apVue ? ' (apprenti affiché)' : ''}</button>
+          <button disabled={!r || obsolete} onClick={() => setEnvoi(true)}>Envoyer par e-mail</button>
+          <button disabled={!r || !r.apprentis.length} onClick={lot}>Un PDF par apprenti (lot)</button>
         </div>
         {erreur && <p className="erreur">{erreur}</p>}
         {info && <p className="succes">{info}</p>}
       </section>
 
-      <div className="actions">
-        <button onClick={() => setCoches(coches.length === concernes.length ? [] : concernes.map((a) => a.id))}>{coches.length === concernes.length && concernes.length ? 'Tout décocher' : 'Tout cocher'}</button>
-        <button className="principal" disabled={!coches.length} onClick={envoyerPlusieurs}>Préparer les brouillons des {coches.length} apprenti(s) coché(s)</button>
-      </div>
-
-      <table className="tableau">
-        <thead><tr><th /><th>Apprenti</th><th>Classe</th><th>Absences</th><th>Retards</th><th>Rattrapées</th><th>Solde</th><th>État</th><th /></tr></thead>
-        <tbody>
-          {concernes.length === 0 && <tr><td colSpan={9} className="discret">Aucun apprenti avec des absences ou retards irrecevables sur ce mois.</td></tr>}
-          {concernes.map((a) => (
-            <tr key={a.id}>
-              <td><input type="checkbox" checked={coches.includes(a.id)} onChange={(e) => setCoches(e.target.checked ? [...coches, a.id] : coches.filter((x) => x !== a.id))} /></td>
-              <td><strong>{a.nom.toUpperCase()}</strong> {a.prenom}</td>
-              <td>{a.classe_code}</td>
-              <td>{hm(a.min_absences)}</td><td>{hm(a.min_retards)}</td><td>{hm(a.validees)}</td><td><strong>{hm(a.solde)}</strong></td>
-              <td>{faits[a.id] ? <span className="etiquette st-vert">{faits[a.id]}</span> : <span className="discret">à envoyer</span>}</td>
-              <td><button onClick={() => ouvrirPrepa(a)}>Préparer…</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {prepa && (
-        <div className="voile">
-          <div className="fenetre">
-            <div className="entete"><h2>Mail à l'employeur — {prepa.a.nom.toUpperCase()} {prepa.a.prenom}</h2><button onClick={() => setPrepa(null)}>Fermer</button></div>
-            <ChoixDestinataires destinataires={prepa.destinataires} envoi={prepa.envoi} onChange={(envoi) => maj({ envoi })} />
-            {ppInclus(prepa.envoi, prepa.destinataires) && (
-              <p className="alerte-texte">⚠ Le professeur principal recevra ce récapitulatif et les pièces jointes cochées : ne joignez un justificatif médical que si c'est nécessaire.</p>
-            )}
-            <label>Objet<input value={prepa.objet} onChange={(e) => maj({ objet: e.target.value })} /></label>
-            <label>Message (modifiable)<textarea rows={16} value={prepa.corps} onChange={(e) => maj({ corps: e.target.value })} /></label>
-            <h3>Pièces jointes</h3>
-            {prepa.donnees.pieces.length === 0 && prepa.donnees.pieces_evenements.length === 0 && <p className="discret">Aucune pièce disponible pour ce mois.</p>}
-            <ul className="pieces">
-              {prepa.donnees.pieces.map((p) => (
-                <li key={`s${p.id}`}><label className="case">
-                  <input type="checkbox" checked={prepa.piecesSeance.includes(p.id)} onChange={(e) => maj({ piecesSeance: e.target.checked ? [...prepa.piecesSeance, p.id] : prepa.piecesSeance.filter((x) => x !== p.id) })} />
-                  Feuille d'émargement signée : {p.nom_fichier} <span className="discret">({formaterTaille(p.taille)})</span>
-                </label></li>
-              ))}
-              {prepa.donnees.pieces_evenements.map((p) => (
-                <li key={`e${p.id}`}><label className="case">
-                  <input type="checkbox" checked={prepa.piecesEvenement.includes(p.id)} onChange={(e) => maj({ piecesEvenement: e.target.checked ? [...prepa.piecesEvenement, p.id] : prepa.piecesEvenement.filter((x) => x !== p.id) })} />
-                  Pièce d'absence : {p.nom_fichier} <span className="discret">({formaterTaille(p.taille)})</span>
-                </label></li>
-              ))}
-            </ul>
-            <div className="actions">
-              <button className="principal" onClick={envoyerUn}>Ouvrir le brouillon dans Outlook</button>
-              <button onClick={() => setPrepa(null)}>Annuler</button>
-            </div>
-          </div>
-        </div>
+      {r && obsolete && (
+        <p className="alerte-texte">
+          ⚠ {critereModifie ? 'Les critères ont changé depuis la génération.' : 'Des données ont changé depuis la génération (absence, retard ou sanction modifié).'} Ces résultats ne sont plus à jour : cliquez sur « Générer le tableau de bord ». L'export par e-mail est bloqué tant que ce n'est pas fait.
+        </p>
       )}
+
+      {r && (
+        <>
+          <p className="discret">Généré le {formaterDate(r.genere_le.slice(0, 10))} à {r.genere_le.slice(11, 16)} (UTC) — extraction n° {extraction ?? '—'}{vue ? '' : ''}</p>
+          {apVue && <p><button onClick={() => setVue(null)}>← Retour au tableau collectif</button> <strong>{apVue.nom.toUpperCase()} {apVue.prenom}</strong> — {apVue.classe_code}</p>}
+          <div className="cartes-stats">
+            {(() => {
+              const t = apVue ? { apprentis: 1, absences: apVue.absences, retards: apVue.retards, sanctions: apVue.sanctions.length } : r.totaux;
+              return (
+                <>
+                  {!apVue && <div className="carte-stat"><div className="carte-titre">Apprentis</div><div className="carte-grand">{t.apprentis}</div></div>}
+                  {r.criteres.domaines.includes('absences') && <div className="carte-stat"><div className="carte-titre">Absences</div><div className="carte-grand">{t.absences.nb}</div><div className="discret">{hm(t.absences.minutes)} — injustifiées {t.absences.injustifiees.nb}</div></div>}
+                  {r.criteres.domaines.includes('retards') && <div className="carte-stat"><div className="carte-titre">Retards</div><div className="carte-grand">{t.retards.nb}</div><div className="discret">{hm(t.retards.minutes)} — injustifiés {t.retards.injustifiees.nb}</div></div>}
+                  {r.criteres.domaines.includes('sanctions') && <div className="carte-stat"><div className="carte-titre">Sanctions</div><div className="carte-grand">{t.sanctions}</div></div>}
+                </>
+              );
+            })()}
+          </div>
+          <div className="graphes">{g.map((x) => <div key={x.id} className="graphe" dangerouslySetInnerHTML={{ __html: x.svg }} />)}</div>
+          {g.length === 0 && <p className="discret">Aucune donnée à représenter sur cette période.</p>}
+
+          {!apVue && r.par_classe.length > 1 && (
+            <>
+              <h3>Comparaison des classes</h3>
+              <table className="tableau"><thead><tr><th>Classe</th><th>Apprentis</th><th>Absences</th><th>Heures</th><th>Retards</th><th>Heures</th><th>Sanctions</th></tr></thead>
+                <tbody>{r.par_classe.map((c) => <tr key={c.classe}><td>{c.classe}</td><td>{c.apprentis}</td><td>{c.absences}</td><td>{hm(c.min_absences)}</td><td>{c.retards}</td><td>{hm(c.min_retards)}</td><td>{c.sanctions}</td></tr>)}</tbody></table>
+            </>
+          )}
+
+          {!apVue && (
+            <>
+              <h3>Apprentis ({r.apprentis.length})</h3>
+              <table className="tableau"><thead><tr><th>Apprenti</th><th>Classe</th><th>Absences</th><th>Retards</th><th>Sanctions</th><th /></tr></thead>
+                <tbody>
+                  {r.apprentis.length === 0 && <tr><td colSpan={6} className="discret">Aucun apprenti ne correspond à ces critères.</td></tr>}
+                  {r.apprentis.map((a) => (
+                    <tr key={a.id}><td><strong>{a.nom.toUpperCase()}</strong> {a.prenom}</td><td>{a.classe_code}</td>
+                      <td>{a.absences.nb} — {hm(a.absences.minutes)}</td><td>{a.retards.nb} — {hm(a.retards.minutes)}</td><td>{r.criteres.domaines.includes('sanctions') ? a.sanctions.length : '—'}</td>
+                      <td><button onClick={() => setVue(a.id)}>Tableau individuel</button></td></tr>
+                  ))}
+                </tbody></table>
+            </>
+          )}
+          {apVue && (
+            <>
+              <h3>Détail</h3>
+              <table className="tableau"><thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Motif</th><th>Statut</th></tr></thead>
+                <tbody>
+                  {apVue.evenements.length === 0 && <tr><td colSpan={5} className="discret">Aucune absence ni retard.</td></tr>}
+                  {apVue.evenements.map((e) => <tr key={e.id}><td>{formaterDate(e.date_debut)}</td><td>{e.type === 'absence' ? 'Absence' : 'Retard'}</td><td>{hm(e.duree_minutes ?? 0)}</td><td>{e.motif_libelle ?? '—'}</td><td>{e.motif_statut === 'recevable' ? 'Justifiée' : e.motif_statut === 'irrecevable' ? 'Injustifiée' : 'En attente'}</td></tr>)}
+                </tbody></table>
+              {r.criteres.domaines.includes('sanctions') && (
+                <>
+                  <h3>Sanctions</h3>
+                  <table className="tableau"><thead><tr><th>Date</th><th>Palier</th><th>Motif</th></tr></thead>
+                    <tbody>{apVue.sanctions.length === 0 && <tr><td colSpan={3} className="discret">Aucune sanction.</td></tr>}
+                      {apVue.sanctions.map((s) => <tr key={s.id}><td>{formaterDate(s.date_decision ?? s.date_faits)}</td><td>{s.palier ?? '—'}</td><td>{s.motif}</td></tr>)}</tbody></table>
+                </>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {envoi && r && (
+        <EnvoiRecap r={r} apprenti={apVue} extraction={extraction} periode={periode} nomsClasses={nomsClasses}
+          fermer={(msg) => { setEnvoi(false); if (msg) setInfo(msg); }} />
+      )}
+    </>
+  );
+}
+
+// Résultat limité à un apprenti (graphiques de la vue individuelle).
+function soloRes(r: ResultatRecap, a: ApprentiRecap): ResultatRecap {
+  const m: Record<string, ResultatRecap['par_mois'][number]> = {};
+  const k = (x: string) => (m[x] ??= { mois: x, absences: 0, min_absences: 0, retards: 0, min_retards: 0, sanctions: 0 });
+  for (const e of a.evenements) { const x = k(e.date_debut.slice(0, 7)); if (e.type === 'absence') { x.absences++; x.min_absences += e.duree_minutes ?? 0; } else { x.retards++; x.min_retards += e.duree_minutes ?? 0; } }
+  for (const s of a.sanctions) k((s.date_decision ?? s.date_faits).slice(0, 7)).sanctions++;
+  const p: Record<string, number> = {};
+  for (const s of a.sanctions) p[s.palier ?? 'Non précisé'] = (p[s.palier ?? 'Non précisé'] ?? 0) + 1;
+  return { ...r, apprentis: [a], totaux: { apprentis: 1, absences: a.absences, retards: a.retards, sanctions: a.sanctions.length }, par_mois: Object.values(m).sort((x, y) => x.mois.localeCompare(y.mois)), par_palier: Object.entries(p).map(([palier, nb]) => ({ palier, nb })) };
+}
+
+function EnvoiRecap({ r, apprenti, extraction, periode, nomsClasses, fermer }: {
+  r: ResultatRecap; apprenti: ApprentiRecap | null; extraction: number | null; periode: string; nomsClasses: string[]; fermer: (msg?: string) => void;
+}) {
+  const [dest, setDest] = useState<Destinataire[]>([]);
+  const [envoi, setEnvoi] = useState<Envoi>({ choix: {}, autres: { a: '', cc: '', cci: '' } });
+  const [avecSanctions, setAvecSanctions] = useState(false);
+  const [autorises, setAutorises] = useState<string[]>([]);
+  const [confirmes, setConfirmes] = useState<string[]>([]);
+  const [pj, setPj] = useState<{ pdf: boolean; xlsx: boolean }>({ pdf: true, xlsx: false });
+  const [objet, setObjet] = useState(`Récapitulatif de suivi — ${formaterDate(r.criteres.debut)} au ${formaterDate(r.criteres.fin)}`);
+  const [corps, setCorps] = useState('Bonjour,\n\nVeuillez trouver ci-joint le récapitulatif de suivi pour la période indiquée.\n\nCordialement,');
+  const [controle, setControle] = useState<ControleEnvoi | null>(null);
+  const [erreur, setErreur] = useState('');
+  const individuel = !!apprenti;
+  const sanctionsDispo = r.criteres.domaines.includes('sanctions');
+
+  useEffect(() => {
+    if (!apprenti) return;
+    appeler<Destinataire[]>('destinataires:list', { jeune_id: apprenti.id, date: r.criteres.fin }).then((d) => { setDest(d); setEnvoi(envoiParDefaut(d)); });
+  }, [apprenti?.id]);
+
+  const adresses = Object.values(repartition(envoi)).flat();
+  const domaines = sanctionsDispo && avecSanctions ? r.criteres.domaines : r.criteres.domaines.filter((d) => d !== 'sanctions');
+  const arg = () => ({ jeune_ids: individuel ? [apprenti!.id] : r.apprentis.map((a) => a.id), domaines, destinataires: adresses, sanctions_autorisees_a: autorises, confirmes, date: r.criteres.fin });
+  useEffect(() => { setControle(null); }, [avecSanctions, autorises, confirmes, envoi, apprenti?.id]);
+
+  const doc = () => {
+    const base = sanctionsDispo && avecSanctions ? r : sansDomaine(r, 'sanctions');
+    return apprenti ? htmlIndividuel(base, base.apprentis.find((a) => a.id === apprenti.id) ?? apprenti) : htmlCollectif(base);
+  };
+  const feuilles = () => feuillesExcel(sanctionsDispo && avecSanctions ? r : sansDomaine(r, 'sanctions'), nomsClasses);
+  const nom = apprenti ? `Tableau_de_bord_${apprenti.nom}_${apprenti.prenom}_${periode}` : `Recapitulatif_${periode}`;
+
+  async function controler() {
+    setErreur('');
+    if (adressesInvalides(envoi).length) { setErreur(`Adresse(s) invalide(s) : ${adressesInvalides(envoi).join(', ')}`); return; }
+    setControle(await appeler<ControleEnvoi>('recap:controler', arg()));
+  }
+  async function telecharger() {
+    try {
+      if (pj.pdf) await documents('pdf', { html: doc(), nom });
+      if (pj.xlsx) await documents('xlsx', { feuilles: feuilles(), nom });
+    } catch (e) { setErreur((e as Error).message); }
+  }
+  async function envoyer() {
+    try {
+      const c = await appeler<ControleEnvoi>('recap:controler', arg());
+      setControle(c);
+      if (!c.ok) return;
+      const rep = repartition(envoi);
+      const res = await documents<ResultatCourriel>('courriel', {
+        ...rep, objet, corps, nom,
+        html: pj.pdf ? doc() : undefined, xlsx: pj.xlsx ? { nom, feuilles: feuilles() } : undefined,
+      });
+      await appeler('recap:transmission:enregistrer', {
+        ...arg(), extraction_id: extraction, type_document: [pj.pdf ? 'pdf' : '', pj.xlsx ? 'excel' : ''].filter(Boolean).join('+'),
+        pieces: [pj.pdf ? `${nom}.pdf` : '', pj.xlsx ? `${nom}.xlsx` : ''].filter(Boolean), objet,
+      });
+      fermer(res.methode === 'outlook' ? 'Brouillon Outlook ouvert avec le document en pièce jointe. Relisez-le puis envoyez-le vous-même.' : "Message ouvert ; glissez-y les documents (téléchargez-les d'abord).");
+    } catch (e) { setErreur((e as Error).message); }
+  }
+
+  return (
+    <div className="voile">
+      <div className="fenetre">
+        <div className="entete"><h2>Envoyer par e-mail — {apprenti ? `${apprenti.nom.toUpperCase()} ${apprenti.prenom}` : 'tableau collectif'}</h2><button onClick={() => fermer()}>Fermer</button></div>
+        {!individuel && <p className="discret">Document collectif : il ne peut pas être envoyé à une entreprise (une entreprise ne reçoit que les données de son propre apprenti). Ouvrez le tableau individuel d'un apprenti pour écrire à son entreprise.</p>}
+        <ChoixDestinataires destinataires={dest} envoi={envoi} onChange={setEnvoi} />
+        {sanctionsDispo && (
+          <fieldset>
+            <label className="case"><input type="checkbox" checked={avecSanctions} onChange={(e) => setAvecSanctions(e.target.checked)} /> Inclure les sanctions dans le document</label>
+            {avecSanctions && (
+              <>
+                <p className="alerte-texte">⚠ Données disciplinaires : cochez uniquement les destinataires expressément autorisés à les recevoir. Une entreprise ne doit normalement pas les recevoir.</p>
+                {adresses.map((a) => (
+                  <label key={a} className="case"><input type="checkbox" checked={autorises.includes(a.toLowerCase())} onChange={(e) => setAutorises(e.target.checked ? [...autorises, a.toLowerCase()] : autorises.filter((x) => x !== a.toLowerCase()))} /> Autoriser les sanctions pour {a}</label>
+                ))}
+              </>
+            )}
+          </fieldset>
+        )}
+        <label className="case"><input type="checkbox" checked={pj.pdf} onChange={(e) => setPj({ ...pj, pdf: e.target.checked })} /> Joindre le PDF</label>
+        <label className="case"><input type="checkbox" checked={pj.xlsx} onChange={(e) => setPj({ ...pj, xlsx: e.target.checked })} /> Joindre le fichier Excel</label>
+        <label>Objet<input value={objet} onChange={(e) => setObjet(e.target.value)} /></label>
+        <label>Message<textarea rows={6} value={corps} onChange={(e) => setCorps(e.target.value)} /></label>
+        {controle && (
+          <div>
+            {controle.erreurs.map((e) => <p key={e} className="erreur">✖ {e}</p>)}
+            {controle.avertissements.map((w) => (
+              <p key={w} className="alerte-texte">⚠ {w} <button onClick={() => setConfirmes([...confirmes, w.split(' : ')[0].toLowerCase()])}>Confirmer cette adresse</button></p>
+            ))}
+            {controle.ok && <p className="succes">✔ Destinataires vérifiés : {controle.verifies.map((v) => `${v.adresse} (${v.nature === 'entreprise' ? "entreprise de l'apprenti" : v.nature === 'pp' ? 'professeur principal' : 'adresse libre confirmée'})`).join(' ; ')}</p>}
+          </div>
+        )}
+        {erreur && <p className="erreur">{erreur}</p>}
+        <div className="actions">
+          <button onClick={telecharger}>Télécharger avant l'envoi</button>
+          <button onClick={controler}>Vérifier les destinataires</button>
+          <button className="principal" disabled={!adresses.length || (!pj.pdf && !pj.xlsx)} onClick={envoyer}>Valider et ouvrir le brouillon</button>
+          <button onClick={() => fermer()}>Annuler</button>
+        </div>
+        <p className="discret">Rien n'est envoyé sans votre validation : le message s'ouvre en brouillon Outlook avec le document joint.</p>
+      </div>
+    </div>
+  );
+}
+
+function HistoriqueRecap() {
+  const [h, setH] = useState<{ extractions: ExtractionRecap[]; transmissions: TransmissionRecap[] } | null>(null);
+  const [verif, setVerif] = useState<Record<number, boolean>>({});
+  useEffect(() => { appeler<{ extractions: ExtractionRecap[]; transmissions: TransmissionRecap[] }>('recap:historique').then(setH); }, []);
+  const crit = (x: ExtractionRecap) => {
+    try { const c = JSON.parse(x.criteres); return `classes : ${c.classe_ids.length ? c.classe_ids.length : 'toutes'}${c.recherche ? ` ; « ${c.recherche} »` : ''}`; } catch { return ''; }
+  };
+  if (!h) return null;
+  return (
+    <>
+      <h3>Extractions</h3>
+      <table className="tableau"><thead><tr><th>Date</th><th>Utilisateur</th><th>Période</th><th>Domaines</th><th>Critères</th><th>Apprentis</th><th>Usage</th><th>État</th></tr></thead>
+        <tbody>
+          {h.extractions.length === 0 && <tr><td colSpan={8} className="discret">Aucune extraction.</td></tr>}
+          {h.extractions.map((x) => (
+            <tr key={x.id}><td>{formaterDate(x.date_extraction.slice(0, 10))} {x.date_extraction.slice(11, 16)}</td><td>{x.utilisateur ?? '—'}</td><td>{formaterDate(x.debut)} → {formaterDate(x.fin)}</td><td>{x.domaines}</td><td>{crit(x)}</td><td>{x.nb_apprentis}</td><td>{x.usage}</td>
+              <td>{verif[x.id] === undefined ? <button onClick={async () => { const v = await appeler<{ a_jour: boolean }>('recap:verifier', { extraction_id: x.id }); setVerif({ ...verif, [x.id]: v.a_jour }); }}>Vérifier</button> : verif[x.id] ? <span className="etiquette st-vert">À jour</span> : <span className="etiquette st-orange">Données modifiées : régénérer</span>}</td></tr>
+          ))}
+        </tbody></table>
+      <h3>Transmissions</h3>
+      <table className="tableau"><thead><tr><th>Date</th><th>Utilisateur</th><th>Destinataire(s)</th><th>Apprenti</th><th>Document</th><th>Domaines</th><th>Sanctions</th></tr></thead>
+        <tbody>
+          {h.transmissions.length === 0 && <tr><td colSpan={7} className="discret">Aucune transmission.</td></tr>}
+          {h.transmissions.map((t) => (
+            <tr key={t.id}><td>{formaterDate(t.date_envoi.slice(0, 10))} {t.date_envoi.slice(11, 16)}</td><td>{t.utilisateur ?? '—'}</td><td>{(JSON.parse(t.destinataires) as string[]).join(', ')}</td><td>{t.jeune_nom ? `${t.jeune_nom.toUpperCase()} ${t.jeune_prenom}` : 'collectif'}</td><td>{t.type_document}</td><td>{t.domaines}</td><td>{t.avec_sanctions ? 'oui' : 'non'}</td></tr>
+          ))}
+        </tbody></table>
+      <p className="discret">Dernier chargement : {aujourdhui().split('-').reverse().join('/')}. Les brouillons ouverts dans Outlook sont journalisés au moment où vous les validez.</p>
     </>
   );
 }

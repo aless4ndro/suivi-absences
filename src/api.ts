@@ -336,3 +336,23 @@ export type ImportHistorique = {
   nb_lignes: number; nb_apprentis_crees: number; nb_apprentis_maj: number; nb_entreprises_creees: number; nb_entreprises_maj: number;
   nb_rapprochements: number; nb_anomalies: number; annule_le: string | null; annule_rapport: string | null;
 };
+
+// ── Récapitulatif absences / retards / sanctions ──
+export type TotalRecap = { nb: number; minutes: number };
+export type DetailRecap = TotalRecap & { justifiees: TotalRecap; injustifiees: TotalRecap; en_attente: TotalRecap };
+export type EvenementRecap = { id: number; jeune_id: number; type: 'absence' | 'retard'; date_debut: string; date_fin: string | null; duree_minutes: number | null; motif_libelle: string | null; motif_statut: 'recevable' | 'irrecevable' | null };
+export type SanctionRecap = { id: number; jeune_id: number; date_faits: string; date_decision: string | null; statut: string; duree: string | null; palier: string | null; motif: string };
+export type ApprentiRecap = { id: number; nom: string; prenom: string; classe_id: number; classe_code: string; absences: DetailRecap; retards: DetailRecap; evenements: EvenementRecap[]; sanctions: SanctionRecap[] };
+export type DomainesRecap = { absences?: boolean; retards?: boolean; sanctions?: boolean };
+export type CriteresRecap = { debut: string; fin: string; domaines: ('absences' | 'retards' | 'sanctions')[]; classe_ids: number[]; jeune_ids: number[]; recherche: string; annee_scolaire: string | null };
+export type MoisRecap = { mois: string; absences: number; min_absences: number; retards: number; min_retards: number; sanctions: number };
+export type ClasseRecap = { classe: string; apprentis: number; absences: number; min_absences: number; retards: number; min_retards: number; sanctions: number };
+export type ResultatRecap = {
+  criteres: CriteresRecap; genere_le: string; empreinte: string;
+  totaux: { apprentis: number; absences: DetailRecap; retards: DetailRecap; sanctions: number };
+  apprentis: ApprentiRecap[]; par_mois: MoisRecap[]; par_classe: ClasseRecap[]; par_palier: { palier: string; nb: number }[];
+  etablissement: Etablissement | null;
+};
+export type ControleEnvoi = { ok: boolean; erreurs: string[]; avertissements: string[]; verifies: { adresse: string; nature: 'entreprise' | 'pp' | 'libre' }[] };
+export type ExtractionRecap = { id: number; date_extraction: string; utilisateur: string | null; debut: string; fin: string; domaines: string; criteres: string; empreinte: string; nb_apprentis: number; usage: string | null };
+export type TransmissionRecap = { id: number; extraction_id: number | null; date_envoi: string; utilisateur: string | null; jeune_id: number | null; jeune_nom: string | null; jeune_prenom: string | null; destinataires: string; type_document: string; domaines: string; avec_sanctions: number; pieces: string | null; objet: string | null };

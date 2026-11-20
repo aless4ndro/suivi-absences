@@ -8,6 +8,7 @@ const { verifierSauvegarde, remplacer } = require('./sauvegarde.cjs');
 const { lirePdf } = require('./calendrier-pdf.cjs');
 const { lireTableau, reconnaitreColonnes, normaliserFeuilles, CHAMPS } = require('./import-tableau.cjs');
 const { lireXlsx } = require('./calendrier-import.cjs');
+const { ecrireXlsx } = require('./xlsx-ecrire.cjs');
 const { composer, repartir, preparerBrouillon, nomSur, convertirWordEnPdf } = require('./courriel.cjs');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
@@ -70,7 +71,9 @@ function exigerOuvert() {
 }
 
 function brancherIpc() {
+  const sessionOs = () => { try { return require('node:os').userInfo().username; } catch { return null; } };
   ipcMain.handle('db', (_e, action, arg) => {
+    if (/^recap:(extraction|transmission):enregistrer$/.test(action) && arg && typeof arg === 'object') arg = { ...arg, utilisateur: sessionOs() };
     exigerOuvert();
     return db.appeler(action, arg);
   });
@@ -136,6 +139,34 @@ function brancherIpc() {
       return { chemin: filePath };
     }
 
+    if (action === 'xlsx') {
+      const nomX = nomSur(String(arg.nom || 'recapitulatif')).replace(/\.xlsx$/i, '') + '.xlsx';
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        title: 'Enregistrer le tableau Excel',
+        defaultPath: path.join(app.getPath('documents'), nomX),
+        filters: [{ name: 'Classeur Excel', extensions: ['xlsx'] }],
+      });
+      if (canceled || !filePath) return { annule: true };
+      fs.writeFileSync(filePath, ecrireXlsx(arg.feuilles));
+      return { chemin: filePath };
+    }
+
+    // Un PDF par document (ex. un tableau de bord individuel par apprenti), dans un dossier choisi.
+    if (action === 'pdfLot') {
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, { title: 'Choisir le dossier où enregistrer les PDF', properties: ['openDirectory', 'createDirectory'] });
+      if (canceled || !filePaths[0]) return { annule: true };
+      const noms = new Set();
+      let nb = 0;
+      for (const d of arg.documents ?? []) {
+        let nom = nomSur(String(d.nom || 'document')).replace(/\.pdf$/i, '');
+        while (noms.has(nom.toLowerCase())) nom += '_2';
+        noms.add(nom.toLowerCase());
+        fs.writeFileSync(path.join(filePaths[0], `${nom}.pdf`), await htmlVersPdf(d.html));
+        nb++;
+      }
+      return { dossier: filePaths[0], nb };
+    }
+
     if (action === 'courriel') {
       // Convocation ou bilan : un PDF éventuel + justificatifs choisis, dans un brouillon Outlook (jamais envoyé automatiquement).
       fs.mkdirSync(dossierTemp(), { recursive: true });
@@ -144,6 +175,11 @@ function brancherIpc() {
       if (arg.html) {
         const chemin = path.join(dossier, nomPdf);
         fs.writeFileSync(chemin, await htmlVersPdf(arg.html));
+        fichiers.push(chemin);
+      }
+      if (arg.xlsx?.feuilles) {
+        const chemin = path.join(dossier, nomSur(String(arg.xlsx.nom || 'recapitulatif')).replace(/\.xlsx$/i, '') + '.xlsx');
+        fs.writeFileSync(chemin, ecrireXlsx(arg.xlsx.feuilles));
         fichiers.push(chemin);
       }
       for (const id of arg.piece_seance_ids ?? []) {
