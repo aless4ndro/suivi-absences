@@ -31,7 +31,7 @@ th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--bo
 th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--discret); background: #fafbfc; }
 tr:last-child td { border-bottom: 0; }
 td.droite { text-align: right; white-space: nowrap; }
-.connexion { display: flex; height: 100vh; align-items: center; justify-content: center; }
+.connexion { display: flex; flex-direction: column; gap: 22px; height: 100vh; align-items: center; justify-content: center; }
 .connexion .fiche { width: 420px; margin: 0; }
 .succes { color: #1a7a3a; margin: 12px 0 0; }
 section.fiche p.discret { margin: 0 0 12px; }
@@ -267,3 +267,12 @@ button.carte:hover { border-color: rgba(59,130,246,.35); box-shadow: 0 1px 2px r
 .colonne > main::-webkit-scrollbar { width: 10px; }
 .colonne > main::-webkit-scrollbar-thumb { background: rgba(15,23,42,.18); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
 .menu-entree, .menu-groupe { transition: none; }
+
+/* Marque : écran de connexion et pied de page */
+.marque-connexion { text-align: center; margin-bottom: 14px; }
+.marque-connexion h1 { margin: 0; font-size: 30px; letter-spacing: -.02em; }
+.baseline { margin: 4px 0 0; color: var(--discret); font-size: 14px; }
+.developpe-par { margin: 0; display: flex; align-items: center; gap: 8px; color: var(--discret); font-size: 12px; }
+.developpe-par img { height: 22px; }
+.pied { flex-shrink: 0; height: 30px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 0 24px; color: #94a3b8; font-size: 11px; border-top: 1px solid rgba(0,0,0,.05); background: rgba(255,255,255,.5); opacity: .85; }
+.pied img { height: 16px; }

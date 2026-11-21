@@ -29,7 +29,7 @@
   },
   "build": {
     "appId": "fr.alessandro.suiviabsences",
-    "productName": "Suivi Absences",
+    "productName": "Présencia",
     "directories": {
       "output": "release"
     },
@@ -60,7 +60,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Suivi Absences",
+      "shortcutName": "Présencia",
       "deleteAppDataOnUninstall": false
     }
   }

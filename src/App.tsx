@@ -71,6 +71,7 @@ export default function App() {
         {page === 'parametres' && <Parametres apresRestauration={rafraichir} />}
         </ErreurPage>
         </main>
+        <footer className="pied"><span>Développé par</span><img src="./ikelli-systeme.png" alt="Ikelli Systeme" /></footer>
       </div>
     </div>
   );

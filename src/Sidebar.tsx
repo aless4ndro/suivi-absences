@@ -58,7 +58,7 @@ export default function Sidebar({ page, onNaviguer, onVerrouiller, nbAlertes }: 
     <nav className={`menu${reduit ? ' reduit' : ''}`} aria-label="Navigation principale">
       <div className="menu-entete">
         <span className="marque-icone"><CalendarCheck size={20} strokeWidth={1.8} /></span>
-        {!reduit && <span className="marque-titre">Suivi Absences</span>}
+        {!reduit && <span className="marque-titre">Présencia</span>}
         <button className="menu-burger" onClick={basculerReduit} aria-label={reduit ? 'Déplier le menu' : 'Réduire le menu'} title={reduit ? 'Déplier le menu' : 'Réduire le menu'}>
           <Menu size={18} strokeWidth={1.5} />
         </button>

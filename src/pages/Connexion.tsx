@@ -25,7 +25,10 @@ export default function Connexion({ mdpDefini, onOk }: { mdpDefini: boolean; onO
   return (
     <div className="connexion">
       <form className="fiche" onSubmit={valider}>
-        <h1>Suivi Absences</h1>
+        <div className="marque-connexion">
+          <h1>Présencia</h1>
+          <p className="baseline">Assiduité, retards, sanctions : tout au même endroit.</p>
+        </div>
         {mdpDefini ? (
           <p className="discret">Saisissez votre mot de passe pour accéder aux données.</p>
         ) : (
@@ -49,6 +52,7 @@ export default function Connexion({ mdpDefini, onOk }: { mdpDefini: boolean; onO
           <button type="submit" className="principal">{mdpDefini ? 'Se connecter' : 'Créer le mot de passe'}</button>
         </div>
       </form>
+      <p className="developpe-par">Développé par <img src="./ikelli-systeme.png" alt="Ikelli Systeme" /></p>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-# Suivi Absences
+# Présencia (anciennement Suivi Absences)
 
 Application de bureau Windows pour le suivi des absences, retards et rattrapages
 de sept classes en alternance : BTS GPME, MCO et NDRC (1ère et 2ème année) et licence LCVM (3ème année).

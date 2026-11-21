@@ -35,7 +35,7 @@ function creerFenetre() {
     height: 800,
     minWidth: 960,
     minHeight: 600,
-    title: 'Suivi Absences',
+    title: 'Présencia',
     show: false, // affichée seulement quand l'interface est prête (pas d'écran blanc)
     icon: path.join(__dirname, 'icon.png'),
     autoHideMenuBar: true,
@@ -456,7 +456,10 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 
-  app.whenReady().then(() => {
+  // Le dossier des données garde l'ancien nom « Suivi Absences » : changer le nom de l'appli ne doit pas faire disparaître les données.
+app.setPath('userData', path.join(app.getPath('appData'), 'Suivi Absences'));
+
+app.whenReady().then(() => {
     // Les données restent sur le poste, dans le profil Windows de l'utilisatrice.
     fs.rmSync(dossierTemp(), { recursive: true, force: true }); // copies temporaires d'une session précédente
     cheminDb = path.join(app.getPath('userData'), 'suivi-absences.db');
