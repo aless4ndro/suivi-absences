@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react';
+import { CalendarCheck, Lock } from 'lucide-react';
 import { auth } from '../api';
+import LogoIkelli from '../LogoIkelli';
 
 export default function Connexion({ mdpDefini, onOk }: { mdpDefini: boolean; onOk: () => void }) {
   const [mdp, setMdp] = useState('');
@@ -24,9 +26,11 @@ export default function Connexion({ mdpDefini, onOk }: { mdpDefini: boolean; onO
 
   return (
     <div className="connexion">
-      <form className="fiche" onSubmit={valider}>
+      <div className="connexion-fond" aria-hidden="true"><span /><span /><span /></div>
+      <form className="verre" onSubmit={valider}>
         <div className="marque-connexion">
-          <h1>Présencia</h1>
+          <span className="marque-app"><CalendarCheck size={30} strokeWidth={1.8} /></span>
+          <h1 className="nom-app">Présencia</h1>
           <p className="baseline">Assiduité, retards, sanctions : tout au même endroit.</p>
         </div>
         {mdpDefini ? (
@@ -49,10 +53,10 @@ export default function Connexion({ mdpDefini, onOk }: { mdpDefini: boolean; onO
         )}
         {erreur && <p className="erreur">{erreur}</p>}
         <div className="actions">
-          <button type="submit" className="principal">{mdpDefini ? 'Se connecter' : 'Créer le mot de passe'}</button>
+          <button type="submit" className="bouton-verre"><Lock size={16} strokeWidth={1.8} />{mdpDefini ? 'Se connecter' : 'Créer le mot de passe'}</button>
         </div>
       </form>
-      <p className="developpe-par">Développé par <img src="./ikelli-systeme.png" alt="Ikelli Systeme" /></p>
+      <p className="developpe-par">Développé par <LogoIkelli hauteur={20} /></p>
     </div>
   );
 }
