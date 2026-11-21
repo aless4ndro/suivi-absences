@@ -7,4 +7,5 @@ contextBridge.exposeInMainWorld('api', {
   fichiers: (action, arg) => ipcRenderer.invoke('fichiers', action, arg),
   courriel: (action, arg) => ipcRenderer.invoke('courriel', action, arg),
   documents: (action, arg) => ipcRenderer.invoke('documents', action, arg),
+  maj: (action) => ipcRenderer.invoke('maj', action),
 });

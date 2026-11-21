@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, net } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const { ouvrir, TAILLE_MAX_PIECE } = require('./db.cjs');
 const { creerSession } = require('./auth.cjs');
+const miseajour = require('./miseajour.cjs');
 const { verifierSauvegarde, remplacer } = require('./sauvegarde.cjs');
 const { lirePdf } = require('./calendrier-pdf.cjs');
 const { lireTableau, reconnaitreColonnes, normaliserFeuilles, CHAMPS } = require('./import-tableau.cjs');
@@ -128,6 +129,34 @@ function brancherIpc() {
   });
 
   // Documents : convocation, feuille d'émargement et bilan sont fabriqués en HTML puis imprimés en PDF.
+  // Mise à jour : vérification discrète (jamais d'erreur affichée si pas de réseau) puis téléchargement et lancement de l'installateur.
+  let majTrouvee = null;
+  ipcMain.handle('maj', async (_e, action) => {
+    if (action === 'verifier') {
+      try {
+        if (!app.isPackaged && !process.env.PRESENCIA_TEST_MAJ) return null;
+        const rep = await net.fetch(`https://api.github.com/repos/${miseajour.DEPOT}/releases?per_page=10`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Presencia' } });
+        if (!rep.ok) return null;
+        majTrouvee = miseajour.choisirMiseAJour(await rep.json(), app.getVersion());
+        return majTrouvee ? { version: majTrouvee.version, actuelle: app.getVersion() } : null;
+      } catch { return null; }
+    }
+    if (action === 'installer') {
+      if (!majTrouvee) throw new Error("Aucune mise à jour n'a été trouvée.");
+      const rep = await net.fetch(majTrouvee.url, { headers: { 'User-Agent': 'Presencia' } });
+      if (!rep.ok) throw new Error(`Téléchargement impossible (code ${rep.status}). Réessayez plus tard.`);
+      const octets = Buffer.from(await rep.arrayBuffer());
+      if (majTrouvee.taille && octets.length !== majTrouvee.taille) throw new Error('Le téléchargement est incomplet. Réessayez.');
+      const fichier = path.join(app.getPath('temp'), `Presencia-Setup-${majTrouvee.version}.exe`);
+      fs.writeFileSync(fichier, octets);
+      const erreur = await shell.openPath(fichier);
+      if (erreur) throw new Error(`Impossible de lancer l'installateur : ${erreur}`);
+      setTimeout(() => app.quit(), 1500);
+      return { ok: true };
+    }
+    throw new Error(`Action inconnue : ${action}`);
+  });
+
   ipcMain.handle('documents', async (event, action, arg = {}) => {
     exigerOuvert();
     const win = BrowserWindow.fromWebContents(event.sender);

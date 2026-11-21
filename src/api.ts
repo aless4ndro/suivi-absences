@@ -32,6 +32,7 @@ declare global {
       fichiers: (action: string, arg?: unknown) => Promise<any>;
       courriel: (action: string, arg?: unknown) => Promise<any>;
       documents: (action: string, arg?: unknown) => Promise<any>;
+      maj: (action: string) => Promise<any>;
     };
   }
 }
@@ -139,6 +140,15 @@ export async function courriel<T = any>(action: string, arg?: unknown): Promise<
 export async function documents<T = any>(action: string, arg?: unknown): Promise<T> {
   try {
     return await window.api.documents(action, arg);
+  } catch (e) {
+    throw nettoyer(e);
+  }
+}
+
+export type MiseAJour = { version: string; actuelle: string };
+export async function miseAJour<T = any>(action: 'verifier' | 'installer'): Promise<T> {
+  try {
+    return await window.api.maj(action);
   } catch (e) {
     throw nettoyer(e);
   }

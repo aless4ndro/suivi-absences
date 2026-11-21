@@ -1,8 +1,9 @@
 // Barre latérale « Liquid Glass » : 4 sections repliables, mode réduit (72 px), état mémorisé.
 import { useState, type ComponentType } from 'react';
+import { miseAJour, type MiseAJour } from './api';
 import {
   Home, Calendar, Bell, Clock, GraduationCap, Building2, UserCheck, BarChart3, Gavel, Users,
-  CornerUpLeft, ClipboardList, Mail, Filter, FileDown, Settings, Lock, Menu, ChevronDown, CalendarCheck,
+  CornerUpLeft, ClipboardList, Mail, Filter, FileDown, Settings, Lock, Menu, ChevronDown, CalendarCheck, Download, Loader2,
   type LucideProps,
 } from 'lucide-react';
 
@@ -46,9 +47,16 @@ export const titreDe = (id: PageId) => SECTIONS.flatMap((s) => s.entrees).find((
 const lire = <T,>(cle: string, defaut: T): T => { try { const v = localStorage.getItem(cle); return v ? (JSON.parse(v) as T) : defaut; } catch { return defaut; } };
 const ecrire = (cle: string, v: unknown) => { try { localStorage.setItem(cle, JSON.stringify(v)); } catch { /* stockage indisponible : sans conséquence */ } };
 
-interface Props { page: PageId; onNaviguer: (id: PageId) => void; onVerrouiller: () => void; nbAlertes?: number }
+interface Props { page: PageId; onNaviguer: (id: PageId) => void; onVerrouiller: () => void; nbAlertes?: number; maj?: MiseAJour | null }
 
-export default function Sidebar({ page, onNaviguer, onVerrouiller, nbAlertes }: Props) {
+export default function Sidebar({ page, onNaviguer, onVerrouiller, nbAlertes, maj }: Props) {
+  const [majEtat, setMajEtat] = useState<'repos' | 'encours' | 'erreur'>('repos');
+  const [majMsg, setMajMsg] = useState('');
+  async function installer() {
+    if (!confirm(`Installer la version ${maj?.version} ?\n\nL'application va se fermer pour lancer l'installation, puis il suffira de la rouvrir. Vos données ne sont pas touchées.`)) return;
+    setMajEtat('encours'); setMajMsg('');
+    try { await miseAJour('installer'); } catch (e) { setMajEtat('erreur'); setMajMsg(e instanceof Error ? e.message : String(e)); }
+  }
   const [reduit, setReduit] = useState<boolean>(() => lire('menu.reduit', false));
   const [replies, setReplies] = useState<string[]>(() => lire('menu.replies', []));
   const basculerReduit = () => setReduit((r) => { ecrire('menu.reduit', !r); return !r; });
@@ -88,6 +96,15 @@ export default function Sidebar({ page, onNaviguer, onVerrouiller, nbAlertes }: 
           );
         })}
       </div>
+      {maj && (
+        <>
+          {majEtat === 'erreur' && !reduit && <p className="menu-maj-erreur">{majMsg}</p>}
+          <button className="menu-maj" onClick={installer} disabled={majEtat === 'encours'} title={`Mise à jour disponible : version ${maj.version}`}>
+            {majEtat === 'encours' ? <Loader2 size={16} strokeWidth={1.8} className="tourne-sans-fin" /> : <Download size={16} strokeWidth={1.8} />}
+            {!reduit && <span>{majEtat === 'encours' ? 'Téléchargement…' : `Mettre à jour (${maj.version})`}</span>}
+          </button>
+        </>
+      )}
       <button className="menu-verrou" onClick={onVerrouiller} title={reduit ? 'Verrouiller' : undefined}>
         <Lock size={16} strokeWidth={1.5} />{!reduit && <span>Verrouiller</span>}
       </button>
